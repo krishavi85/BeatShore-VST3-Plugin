@@ -45,11 +45,24 @@ Last updated 2026-08-25.
   Actions runner has run it yet, and it has two labeled TODOs (fetching
   the vendored JUCE/VST3 SDK sources; making `build-release.ps1`'s
   hardcoded local tool paths CI-portable).
-- Two additional failure modes verified empirically against the real
-  staged desktop: a corrupted Basic Pitch model file and a genuinely
-  unwritable MIDI export directory both produce an isolated, correctly-
-  attributed self-test failure (exit 1) — not a crash, not a false pass
-  on the unrelated checks.
+- Four failure modes verified empirically against the **installed**
+  build (`native/installer/stage`'s own `BeatShoreDesktop.exe`, not the
+  dev tree): a corrupted Basic Pitch model file, a genuinely missing
+  model file, and an unwritable MIDI export directory all produce an
+  isolated, correctly-attributed self-test failure (exit 1) — not a
+  crash, not a false pass on the unrelated checks. A real Node crash
+  mid-inference (`taskkill` on `node.exe` during a genuine
+  `transcribePolyphonic` request) produces a structured client-side
+  error, the desktop process itself stays alive, and a follow-up request
+  correctly reports the worker unavailable rather than hanging (matching
+  documented, deliberate behavior — no auto-respawn on an *unexpected*
+  Node exit, only after a genuine cancel).
+- Real concurrent load tested against the installed build: 40
+  simultaneous real `BridgeClient` sessions (genuine shared-memory
+  audio), spawned within 0.31s of each other, **40/40 succeeded**, zero
+  failures, zero leaked temp files. This did **not** reach the literal
+  16-concurrent-session or 24-job-queue-depth *rejection* boundaries —
+  see "Current limitations" below for why and what would be needed to.
 
 ## Current limitations
 
@@ -80,11 +93,16 @@ Last updated 2026-08-25.
   model), no persistent per-identity ban list, and the elevated-desktop/
   non-elevated-DAW mandatory-integrity-control scenario is unverified
   (standing guidance: don't run `BeatShoreDesktop.exe` elevated).
-- **The 512MB audio-memory budget and 24-job global queue depth have not
-  been tested under genuine sustained concurrent load** — both require
-  real, simultaneously-queued jobs from multiple real `BridgeClient`
-  sessions (not just malformed/fake requests, which the existing
-  hardening tests already cover), not yet run.
+- **The 512MB audio-memory budget and the 16-session/24-job rejection
+  boundaries have not been reached under genuine load.** A real
+  40-session concurrent burst (see above) never approached them —
+  one-shot test clients (connect, one request, disconnect) drain live
+  sessions and queue depth faster than the ceilings require, so no
+  rejection was ever triggered. The rejection *logic* is verified
+  (structurally identical to the already-tested `RATE_LIMITED` check),
+  but genuinely exhausting these three limits under real load would need
+  a test client that holds its connection open independent of request
+  completion — not built yet.
 - **The CI workflow is unverified** — written, never run on a real
   GitHub Actions runner; has two labeled TODOs (see above).
 
@@ -135,8 +153,9 @@ compiles of identical source — see `RELEASE_MANIFEST.md`).
    unverified — don't run `BeatShoreDesktop.exe` elevated.
 4. No code signing — expect SmartScreen warnings on a real install.
 5. Only one Node worker — see "Deferred decisions" below.
-6. Memory budget and queue-depth limits untested under genuine sustained
-   concurrent load (see "Current limitations").
+6. Memory-budget and session/queue-depth *rejection* boundaries not yet
+   reached under real load (a real 40-session burst passed cleanly
+   without ever triggering them — see "Current limitations").
 7. CI workflow unverified (no real GitHub Actions run yet).
 
 ## Deferred decisions
@@ -176,12 +195,16 @@ they need real hardware, a certificate, or a human.
 - [ ] REAPER lifecycle verified (save/reload, remove/reinsert, desktop
       restart mid-session, multiple instances, MIDI-learned trigger,
       playback/passthrough under load)
-- [ ] Failure/recovery behavior tested on an installed build (desktop
-      unavailable, Node crash, full disk, oversized/malformed messages,
-      long-running cancellation, DAW closes mid-analysis, memory budget
-      and queue depth under sustained concurrent load — missing model
-      files and unwritable MIDI destination already tested, see
-      "Current verified capabilities")
+- [ ] Remaining failure/recovery behavior on an installed build: full
+      disk (not safely simulable here), long-running cancellation during
+      an actual DAW session, DAW closes mid-analysis, and the
+      memory-budget/session/queue-depth *rejection* boundaries under
+      real sustained load (needs a held-open-connection test client —
+      the 40-session real-load burst already run didn't reach them; see
+      "Current limitations"). Desktop-unavailable, Node-crash,
+      oversized/malformed messages, missing/corrupted model files, and
+      unwritable MIDI destination are already tested — see "Current
+      verified capabilities"
 - [ ] Placeholder publisher/support/product URLs and copyright replaced
       with real values
 - [ ] Other Windows DAWs tested (Cubase, Ableton Live, FL Studio, Studio

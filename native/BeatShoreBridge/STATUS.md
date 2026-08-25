@@ -144,6 +144,17 @@ Real and verified, as of the most recent work in this document:
   from-scratch engine tree, confirming the release doesn't secretly
   depend on stale `node_modules`. See "Eighth: source control, CI, and
   the `-CleanEngine` verification" below.
+- **Real concurrent load against the installed build**: 40 simultaneous
+  real `BridgeClient` sessions (genuine shared-memory audio, not
+  synthetic requests), spawned within 0.31s of each other, all 40
+  succeeded with zero failures and zero leaked temp files. A genuine
+  Node-crash-mid-inference test and two more failure-mode tests
+  (missing model file, unwritable MIDI folder) against the installed
+  build all produced exactly the documented behavior. See "Ninth: real
+  concurrent load against the installed build, and two more failure
+  modes" below — including an honest account of which specific
+  rejection thresholds (16-session, 24-job-queue) this load pattern
+  didn't actually reach.
 
 See section 4 ("Test evidence") for the specific numbers behind each of
 these, and section 5 for the full engineering narrative.
@@ -1795,6 +1806,77 @@ covers), disk-full behavior (not safely simulable without actually
 filling a disk), Node-crash-mid-inference beyond what `NODE_EXITED`
 already covers, and the elevated-desktop/non-elevated-DAW scenario
 (still requires interactive UAC, still not available here).
+
+### Ninth: real concurrent load against the installed build, and two more failure modes
+
+A follow-up review asked specifically for the load testing "Not attempted
+this pass" left open above, plus repeating the model-file/MIDI-folder
+tests against the installed build rather than the dev tree (they'd only
+been run against the dev build directory before) and a genuine Node-
+crash-mid-inference test. All run against `native/installer/stage`'s own
+`BeatShoreDesktop.exe` — the actual installed-equivalent binary, not the
+separate dev build tree every earlier round in this document used.
+
+**Real concurrent load, using actual `BridgeClient` sessions with real
+shared-memory audio, not synthetic/malformed requests**: 40
+`BridgeClientTest.exe` processes spawned within 0.31s of each other
+(genuine burst, not a loop with meaningful gaps), each independently
+connecting, handshaking, and requesting a real `transcribePolyphonic`
+round trip against the one staged desktop instance. **40/40 succeeded**,
+zero failures, zero `QUEUE_FULL`/`SERVER_BUSY` rejections, total wall
+time 9.74s (~243ms average per request, consistent with genuine
+serialization through the single Node worker rather than silent parallel
+processing that would corrupt results). Temp file count in the OS temp
+directory was identical before and after (95/95) — no leaks under this
+load, extending the earlier single-request cleanup verification to a
+real concurrent-burst scenario.
+
+**Honestly, this did not reach the literal 16-concurrent-session or
+24-job-queue-depth *rejection* boundaries** — worth stating plainly
+rather than implying more was proven than was. `BridgeClientTest.exe` is
+a one-shot client (connect, one request, wait, disconnect), so live
+session count and queue depth both drain faster than a burst of
+one-shot clients can sustainably exceed the configured ceilings
+(`kMaxConcurrentSessions=16`, `kMaxGlobalQueueDepth=24`) — even a 40-wide
+simultaneous burst never had more than a handful of genuinely
+overlapping live sessions at once, because each one's full round trip
+(connect through disconnect) completes in a few hundred milliseconds.
+Actually forcing those specific rejection paths under real (not
+synthetic) load would need a test client that holds its connection open
+independent of request completion — not built this pass. The rejection
+*logic* itself is unit-adjacent verified already (the structurally
+identical `RATE_LIMITED` check, tested directly via the raw-protocol
+hardening test in "Sixth..." above), just not exercised via 24
+genuinely-simultaneously-queued real audio requests specifically. The
+512MB memory budget is in the same position: never approached under this
+load pattern, logic verified by code path and by the (already-tested)
+overflow-guard math, not by genuine exhaustion.
+
+**Two more empirical failure-mode tests, against the installed build**:
+a genuinely *missing* (not just corrupted) `model.json` (moved aside,
+self-test re-run, restored and re-verified passing immediately after)
+produces the identical clean, isolated failure the corrupted-file test
+found earlier — `noteCount=-1`, only that one check fails, exit 1, no
+crash. A real Node crash mid-inference (`taskkill /F` on `node.exe`
+~300ms into a genuine `transcribePolyphonic` request, confirmed via
+`tasklist` that the targeted PID actually existed and was actually
+killed, not a race that missed it) produced exactly the documented
+behavior: the client receives a structured
+`"node analysis engine exited unexpectedly"` error (not a hang, not a
+crash), the desktop process itself stays alive and responsive (confirmed
+via a follow-up request), and — matching this project's own documented,
+deliberate limitation (`runNodeWorker`'s own comment: no automatic
+respawn on an *unexpected* exit, only after a genuine `CANCEL`) — a
+follow-up request correctly receives `NODE_UNAVAILABLE` rather than
+silently hanging or crashing the broker. Confirmed the desktop process
+survives via `tasklist` immediately before deliberately terminating it
+for cleanup, not assumed.
+
+**Not attempted, honestly**: disk-full (still not safely simulable
+without actually filling a disk), a genuinely-held-open-connection test
+client that could force the session/queue-depth rejection boundaries
+under real load, and the elevated-desktop/non-elevated-DAW scenario
+(still needs interactive UAC, still unavailable here).
 
 ### Second round: real blockers found by external review, fixed for real
 

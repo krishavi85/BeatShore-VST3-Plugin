@@ -1,0 +1,12 @@
+{
+  "name": "beatshore-desktop-engine",
+  "private": true,
+  "type": "module",
+  "description": "Spawned by BeatShoreDesktop.exe as a child process. Reads NDJSON analysis requests on stdin, reuses the same beatshore-dsp.js the browser plugin window uses (imported unmodified from ../../../), writes NDJSON results/progress to stdout. Never touches shared memory or the named pipe directly — that's the C++ desktop process's job (see native/protocol/PROTOCOL.md).",
+  "dependencies": {
+    "@tensorflow/tfjs-node": "^4.22.0"
+  },
+  "scripts": {
+    "postinstall": "node scripts/fix-tfjs-node-binding.js"
+  }
+}

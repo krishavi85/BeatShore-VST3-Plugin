@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  html, body { margin: 0; padding: 0; background: #0c0d16; }
+  * { box-sizing: border-box; }
+  a { color: #9184d9; text-decoration: none; }
+  a:hover { color: #b5abfc; }
+  ::selection { background: #9184d9; color: #161826; }
+  @keyframes bsBlink { 0%,100% { opacity: .3 } 50% { opacity: 1 } }
+</style>
+<script type="module">
+  // Loaded as a plain global (matching how support.js exposes React/ReactDOM)
+  // rather than a dynamic import, because the Component's own playback code
+  // calls into the engine synchronously — no async dance to await a promise
+  // just to press play.
+  import { WebAudioEngine } from './beatshore-audio-engine.js';
+  window.BeatShoreWebAudioEngine = WebAudioEngine;
+</script>
+</helmet>
+<div style="padding:28px;background:#0c0d16;min-height:100vh;display:flex;flex-direction:column;align-items:center;gap:14px;font-family:Inter,system-ui,sans-serif">
+
+  <div style="width:1000px;display:flex;align-items:baseline;justify-content:space-between">
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.18em;color:#75798c">VST3 / AU PLUGIN EDITOR · 1000 × 640 · RESIZABLE</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:#75798c">UI SPEC — NOT A COMPILED PLUGIN</span>
+  </div>
+
+  <div style="width:1000px;height:640px;flex:none;background:#161826;border:1px solid #3f424d;border-radius:8px;box-shadow:0 24px 70px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;color:#e9e9ed;position:relative">
+
+    <div style="height:44px;flex:none;display:flex;align-items:center;gap:12px;padding:0 12px;background:linear-gradient(180deg,#1e2130,#181a27);border-bottom:1px solid #33353f">
+      <div style="display:flex;align-items:center;gap:8px;flex:none">
+        <img src="assets/beatshore-logo.png" alt="BeatShore" style="width:24px;height:24px;object-fit:cover;object-position:center 26%;border-radius:5px" />
+        <div style="display:flex;flex-direction:column;line-height:1.1">
+          <span style="font-size:12px;font-weight:600;letter-spacing:-0.01em;white-space:nowrap">Reverse Studio</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;color:#75798c;white-space:nowrap">v0.9 · VST3</span>
+        </div>
+      </div>
+      <div style="width:1px;height:24px;background:#33353f;flex:none"></div>
+      <div style="display:flex;gap:3px;flex:none;padding:2px;border-radius:5px;background:#13151f;border:1px solid #33353f">
+        <button onClick="{{ goEditor }}" style="{{ vwEditor }}">EDITOR</button>
+        <button onClick="{{ goExport }}" style="{{ vwExport }}">EXPORT</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
+        <button onClick="{{ prevPreset }}" style="width:22px;height:24px;border-radius:4px;border:1px solid #4a4d59;background:#1b1d29;color:#9397ab;cursor:pointer;font-family:Inter,sans-serif;font-size:10px;flex:none" style-hover="border-color:#9184d9;color:#e9e9ed">‹</button>
+        <div style="flex:1;min-width:0;max-width:260px;height:24px;border:1px solid #4a4d59;border-radius:4px;background:#1b1d29;display:flex;align-items:center;padding:0 8px;gap:6px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;color:#75798c;flex:none">PRESET</span>
+          <span style="font-size:11px;color:#e9e9ed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ presetName }}</span>
+        </div>
+        <button onClick="{{ nextPreset }}" style="width:22px;height:24px;border-radius:4px;border:1px solid #4a4d59;background:#1b1d29;color:#9397ab;cursor:pointer;font-family:Inter,sans-serif;font-size:10px;flex:none" style-hover="border-color:#9184d9;color:#e9e9ed">›</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:5px;flex:none">
+        <button onClick="{{ pickA }}" style="{{ abA }}">A</button>
+        <button onClick="{{ pickB }}" style="{{ abB }}">B</button>
+        <div style="width:1px;height:24px;background:#33353f;margin:0 3px"></div>
+        <button onClick="{{ toggleBypass }}" style="{{ bypassStyle }}">{{ bypassLabel }}</button>
+      </div>
+    </div>
+
+    <div style="height:34px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;background:#13151f;border-bottom:1px solid #2a2c36">
+      <input id="bs-plug-file" type="file" multiple="true" accept="audio/*,.wav,.aiff,.aif,.flac,.mp3,.m4a,.ogg" onChange="{{ onFileChange }}" style="display:none" />
+      <input id="bs-plug-file-backend" type="file" accept="audio/*,.wav,.aiff,.aif,.flac,.mp3,.m4a,.ogg" onChange="{{ onBackendFileChange }}" style="display:none" />
+      <button onClick="{{ pickFile }}" style="{{ loadStyle }}">{{ loadLabel }}</button>
+      <div style="width:1px;height:18px;background:#2a2c36;flex:none"></div>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;color:#75798c;flex:none">HOST</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#75798c;flex:none">TEMPO —</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#75798c;flex:none">SIG —</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#75798c;flex:none">TRACK —</span>
+      <span style="{{ hostFlag }}">SUPPLIED BY HOST</span>
+      <div style="flex:1"></div>
+      <button onClick="{{ toggleUseReal }}" style="{{ backendPillStyle }}" title="{{ backendTitle }}">{{ backendLabel }}</button>
+      <sc-if value="{{ isBusy }}">
+        <button onClick="{{ cancelBusy }}" style="height:20px;padding:0 8px;border-radius:3px;cursor:pointer;font-family:JetBrains Mono,monospace;font-size:8px;letter-spacing:.08em;white-space:nowrap;flex:none;border:1px solid #4a3d1a;background:#2a2413;color:#ffd166">CANCEL</button>
+      </sc-if>
+      <span style="{{ statePill }}">{{ stateLabel }}</span>
+    </div>
+
+    <div style="flex:1;position:relative;min-height:0">
+     <sc-if value="{{ onEditor }}" hint-placeholder-val="{{ true }}">
+      <div style="position:absolute;inset:0;display:flex">
+
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid #33353f">
+
+        <div style="height:150px;flex:none;border-bottom:1px solid #2a2c36;display:flex;flex-direction:column">
+          <div style="height:24px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid #20222c;background:#13151f">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">CAPTURED BUFFER</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#75798c">{{ bufLen }}</span>
+            <div style="flex:1"></div>
+            <button onClick="{{ togglePlay }}" style="{{ playStyle }}">{{ playIcon }}</button>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#cfd3e5">{{ playhead }}</span>
+          </div>
+          <div onClick="{{ seek }}" style="flex:1;position:relative;min-height:0;cursor:{{ waveCursor }};background:#111220">
+            {{ waveform }}
+            <sc-if value="{{ noAudio }}">
+              <div onClick="{{ pickFile }}" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer">
+                <span style="font-size:11px;color:#9397ab">Load stems — select them all at once</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.08em;color:#75798c">DRUMS · BASS · PIANO · GUITAR · SYNTH · VOCALS — ROLE READ FROM FILENAME</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ hasAudio }}">
+              <div style="position:absolute;inset:0;pointer-events:none">
+                <div style="position:absolute;top:0;bottom:0;width:1px;background:#ff8b3d;box-shadow:0 0 6px rgba(255,139,61,.5);left:{{ posPct }}"></div>
+              </div>
+            </sc-if>
+          </div>
+          <div style="height:22px;flex:none;display:flex;border-top:1px solid #20222c;background:#13151f">
+            <sc-if value="{{ hasSections }}">
+              <sc-for list="{{ sections }}" as="s" hint-placeholder-count="5">
+                <div style="{{ s.style }}"><span style="{{ s.labelStyle }}">{{ s.label }}</span></div>
+              </sc-for>
+            </sc-if>
+            <sc-if value="{{ noSections }}">
+              <div style="display:flex;align-items:center;padding-left:8px"><span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;color:#75798c">SECTIONS — DETECTED ON LOAD</span></div>
+            </sc-if>
+          </div>
+        </div>
+
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div style="height:26px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid #20222c;background:#13151f">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">EXTRACTED PERFORMANCE</span>
+            <span style="font-size:11px;font-weight:600">{{ targetName }}</span>
+            <div style="flex:1"></div>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#75798c">{{ noteCount }}</span>
+          </div>
+          <div style="flex:1;display:flex;min-height:0">
+            <div style="width:34px;flex:none;border-right:1px solid #20222c;background:#131520">{{ keyboard }}</div>
+            <div style="flex:1;position:relative;min-width:0;background:#111220">
+              <sc-if value="{{ hasNotes }}">
+                <div style="position:absolute;inset:0">
+                  {{ pianoRoll }}
+                  <div style="position:absolute;inset:0;pointer-events:none"><div style="position:absolute;top:0;bottom:0;width:1px;background:#ff8b3d;opacity:.75;left:{{ posPct }}"></div></div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ noNotes }}">
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:0 16px">
+                  <span style="{{ pendingPill }}">{{ rollPill }}</span>
+                  <span style="font-size:10px;color:#75798c;text-align:center;line-height:1.4;max-width:320px">{{ rollNote }}</span>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="height:30px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;border-top:1px solid #20222c;background:#13151f;overflow:hidden">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c;flex:none">CHORDS</span>
+            <sc-if value="{{ noChords }}">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#75798c">— detected on load</span>
+            </sc-if>
+            <div style="flex:1;display:flex;gap:4px;overflow:hidden">
+              <sc-for list="{{ chords }}" as="c" hint-placeholder-count="8">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9px;padding:3px 6px;border-radius:3px;background:#1b1d29;border:1px solid #2a2c36;color:#d2cefd;white-space:nowrap;flex:none">{{ c }}</span>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="width:296px;flex:none;display:flex;flex-direction:column;background:#13151f;min-height:0;overflow:hidden">
+
+        <div style="flex:1 1 auto;max-height:186px;display:flex;flex-direction:column;border-bottom:1px solid #2a2c36;min-height:60px;overflow:hidden">
+          <div style="flex:none;padding:9px 12px 6px;display:flex;align-items:center;gap:8px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">LOADED STEMS</span>
+            <div style="flex:1"></div>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#9397ab;white-space:nowrap">{{ stemCount }}</span>
+            <sc-if value="{{ hasStems }}">
+              <button onClick="{{ clearStems }}" style="background:transparent;border:none;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;color:#9184d9;cursor:pointer;padding:0" style-hover="color:#d2cefd">CLEAR</button>
+            </sc-if>
+          </div>
+          <sc-if value="{{ noStems }}">
+            <div onClick="{{ pickFile }}" style="margin:0 12px 10px;padding:14px 10px;border:1px dashed #4a4d59;border-radius:6px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;background:#1b1d29" style-hover="border-color:#9184d9;background:#1c1f2d">
+              <span style="font-size:10.5px;color:#cfd3e5">Add stems — multi-select</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.08em;color:#75798c">SKIPS SEPARATION ENTIRELY</span>
+            </div>
+            <sc-if value="{{ backendOnline }}">
+              <div onClick="{{ pickBackendFile }}" style="margin:0 12px 10px;padding:10px 10px;border:1px dashed #1c3a33;border-radius:6px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;background:#12211f" style-hover="border-color:#3ddc97;background:#152622">
+                <span style="font-size:10.5px;color:#8ff0c4">Auto-separate a mix — backend</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.08em;color:#75798c">DEMUCS · VOCALS / DRUMS / BASS / OTHER</span>
+              </div>
+            </sc-if>
+          </sc-if>
+          <div style="flex:1;overflow:auto;padding:0 10px 10px;display:flex;flex-direction:column;gap:4px;min-height:0">
+            <sc-for list="{{ stemRows }}" as="t" hint-placeholder-count="0">
+              <div onClick="{{ t.select }}" style="{{ t.row }}">
+                <span style="{{ t.dot }}"></span>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+                  <span style="font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e9e9ed">{{ t.name }}</span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:8px;color:#75798c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.meta }}</span>
+                </div>
+                <div onClick="{{ t.cycleRole }}" style="{{ t.rolePill }}">{{ t.role }}</div>
+                <div onClick="{{ t.mute }}" style="{{ t.muteStyle }}">M</div>
+                <div onClick="{{ t.solo }}" style="{{ t.soloStyle }}">S</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="flex:none;padding:11px 12px;border-bottom:1px solid #2a2c36;display:flex;flex-direction:column;gap:8px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">OUTPUT MODE</span>
+          <div style="display:flex;gap:4px">
+            <sc-for list="{{ modes }}" as="m" hint-placeholder-count="3">
+              <div onClick="{{ m.pick }}" style="{{ m.style }}">{{ m.label }}</div>
+            </sc-for>
+          </div>
+          <span style="font-size:10px;color:#75798c;line-height:1.45">{{ modeDesc }}</span>
+        </div>
+
+        <div style="flex:none;padding:12px;border-bottom:1px solid #2a2c36;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">HUMANIZE</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#75798c">{{ targetName }}</span>
+          </div>
+          <sc-if value="{{ hasHum }}">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <sc-for list="{{ humCells }}" as="h" hint-placeholder-count="4">
+                <div style="border:1px solid #33353f;border-radius:6px;padding:7px 8px;background:#1c1e2b;display:flex;flex-direction:column;gap:2px;min-width:0">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#75798c;white-space:nowrap">{{ h.label }}</span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#e9e9ed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.val }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ noHum }}">
+            <span style="font-size:10px;color:#75798c;line-height:1.45">Measured from the transcribed performance. Run Reconstruct all stems on a drum, bass, vocal or synth stem.</span>
+          </sc-if>
+        </div>
+
+        <div style="flex:1 1 0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:9px;min-height:76px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">DETECTED</span>
+            <span style="{{ confPill }}">CONF {{ confVal }}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <div style="border:1px solid #33353f;border-radius:6px;padding:8px;background:#1c1e2b;display:flex;flex-direction:column;gap:2px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#75798c">TEMPO · DSP</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#e9e9ed">{{ detTempo }}</span>
+            </div>
+            <div style="border:1px solid #33353f;border-radius:6px;padding:8px;background:#1c1e2b;display:flex;flex-direction:column;gap:2px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#75798c">KEY · DSP</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#e9e9ed">{{ detKey }}</span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <div style="border:1px solid #33353f;border-radius:6px;padding:8px;background:#1c1e2b;display:flex;flex-direction:column;gap:2px;min-width:0">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#75798c">LENGTH</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#e9e9ed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ detLen }}</span>
+            </div>
+            <div style="border:1px solid #33353f;border-radius:6px;padding:8px;background:#1c1e2b;display:flex;flex-direction:column;gap:2px;min-width:0">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#75798c">SOURCE</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#e9e9ed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ detRate }}</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;border-top:1px solid #2a2c36;padding-top:9px">
+            <span style="{{ pendingPill }}">AWAITING ENGINE</span>
+            <span style="font-size:10px;color:#75798c;line-height:1.45">Pitch, timing and timbre scores need the transcription and matching models.</span>
+          </div>
+        </div>
+
+        <div style="flex:none;padding:10px 12px;border-top:1px solid #2a2c36;display:flex;flex-direction:column;gap:7px">
+          <button onClick="{{ analyze }}" style="{{ analyzeStyle }}">{{ analyzeLabel }}</button>
+          <sc-if value="{{ dragUsesNativeDrag }}">
+            <div draggable="true" onDragStart="{{ dragMidi }}" style="border:1px dashed #4a4d59;border-radius:6px;padding:8px;display:flex;align-items:center;gap:7px;cursor:grab;background:#1b1d29" style-hover="border-color:#9184d9;background:#1c1f2d">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#9184d9;flex:none">⇥</span>
+              <span style="font-size:10px;color:#9397ab;line-height:1.35">{{ dragMidiHint }}</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ dragUsesDownload }}">
+            <div onClick="{{ downloadMidi }}" style="{{ downloadZoneStyle }}" style-hover="border-color:#9184d9;background:#1c1f2d">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#9184d9;flex:none">⇩</span>
+              <span style="font-size:10px;color:#9397ab;line-height:1.35">{{ dragMidiHint }}</span>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+      </div>
+     </sc-if>
+
+     <sc-if value="{{ onExport }}">
+      <div style="position:absolute;inset:0;display:flex">
+
+        <div style="width:330px;flex:none;display:flex;flex-direction:column;border-right:1px solid #33353f;min-height:0">
+          <div style="height:28px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid #2a2c36;background:#13151f">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">SESSION TREE</span>
+            <div style="flex:1"></div>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#9397ab;white-space:nowrap">{{ treeSummary }}</span>
+          </div>
+          <div style="flex:1;overflow:auto;padding:6px 7px;display:flex;flex-direction:column;gap:1px;min-height:0">
+            <sc-for list="{{ treeRows }}" as="r" hint-placeholder-count="18">
+              <div onClick="{{ r.click }}" style="{{ r.row }}">
+                <span style="{{ r.glyphStyle }}">{{ r.glyph }}</span>
+                <span style="{{ r.nameStyle }}">{{ r.name }}</span>
+                <span style="{{ r.badgeStyle }}">{{ r.badge }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="flex:none;padding:8px 10px;border-top:1px solid #2a2c36">
+            <span style="font-size:9.5px;color:#75798c;line-height:1.45">Load stems to fill AUDIO STEMS, then Reconstruct all stems to fill EDITABLE MIDI and the measured timbre. Separation is only needed when you have no stems.</span>
+          </div>
+        </div>
+
+        <div style="flex:1;display:flex;flex-direction:column;min-width:0;min-height:0">
+          <div style="height:28px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid #2a2c36;background:#13151f">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c;flex:none">SOUND RECONSTRUCTION</span>
+            <span style="font-size:11px;font-weight:600;white-space:nowrap">{{ chainName }}</span>
+            <div style="flex:1"></div>
+            <span style="{{ pendingPill }}">NO MATCH YET</span>
+          </div>
+
+          <div style="flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:11px;min-height:0">
+
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">A / B — WHAT PLAYS</span>
+              <div style="display:flex;gap:4px">
+                <sc-for list="{{ srcModes }}" as="m" hint-placeholder-count="3">
+                  <div onClick="{{ m.pick }}" style="{{ m.style }}">{{ m.label }}</div>
+                </sc-for>
+              </div>
+              <span style="font-size:9.5px;color:#75798c;line-height:1.4">{{ srcDesc }}</span>
+              <span style="font-size:9.5px;color:#75798c;line-height:1.4">Switching to the reconstruction needs an assigned instrument — the engine has not returned one.</span>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">SIGNAL CHAIN</span>
+              <div style="display:flex;align-items:stretch;gap:5px;flex-wrap:wrap">
+                <sc-for list="{{ chainNodes }}" as="n" hint-placeholder-count="5">
+                  <div style="{{ n.card }}">
+                    <span style="{{ n.kickerStyle }}">{{ n.kicker }}</span>
+                    <span style="{{ n.labelStyle }}">{{ n.label }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <span style="font-size:9.5px;color:#75798c;line-height:1.4">{{ chainNote }}</span>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">MIXER VALUES</span>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+                <sc-for list="{{ mixerCells }}" as="c" hint-placeholder-count="4">
+                  <div style="border:1px solid #33353f;border-radius:6px;padding:7px 8px;background:#1c1e2b;display:flex;flex-direction:column;gap:2px;min-width:0">
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;color:#75798c;white-space:nowrap">{{ c.label }}</span>
+                    <span style="{{ c.valStyle }}">{{ c.val }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c">AUTOMATION WRITTEN</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#75798c">— no automation until the engine writes it</span>
+            </div>
+          </div>
+
+          <div style="flex:none;border-top:1px solid #2a2c36;padding:8px 10px;display:flex;flex-direction:column;gap:7px;background:#13151f">
+            <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#75798c;flex:none">TARGETS</span>
+              <sc-for list="{{ targetChips }}" as="d" hint-placeholder-count="7">
+                <div onClick="{{ d.toggle }}" style="{{ d.style }}">{{ d.label }}</div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#9397ab;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ queueLine }}</span>
+                <div style="height:3px;background:#2a2c36;border-radius:2px"><div style="{{ queueBar }}"></div></div>
+              </div>
+              <button onClick="{{ runExport }}" style="{{ exportBtnStyle }}">{{ exportBtnLabel }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+     </sc-if>
+    </div>
+
+    <div style="height:26px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;background:#1e2130;border-top:1px solid #33353f">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.1em;color:#75798c;white-space:nowrap">LATENCY — · CPU — · BUF — (HOST)</span>
+      <div style="flex:1"></div>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.1em;color:#9397ab;white-space:nowrap">ANALYSIS RUNS OFFLINE · NOT IN THE AUDIO THREAD</span>
+    </div>
+
+    <sc-if value="{{ hasErrors }}">
+      <div style="position:absolute;right:10px;bottom:34px;width:300px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:6px;z-index:50">
+        <sc-for list="{{ errorCards }}" as="e" hint-placeholder-count="0">
+          <div style="border:1px solid #4a3d1a;border-radius:6px;background:#1c1710;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:9px 10px;display:flex;flex-direction:column;gap:5px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:7.5px;letter-spacing:.1em;color:#ffd166;flex:1">{{ e.stageLabel }} · {{ e.time }}</span>
+              <span onClick="{{ e.dismiss }}" style="cursor:pointer;color:#75798c;font-size:11px;line-height:1;padding:0 2px" style-hover="color:#e9e9ed">×</span>
+            </div>
+            <span style="font-size:11px;color:#e9e9ed;line-height:1.4">{{ e.message }}</span>
+            <span style="font-size:10px;color:#9397ab;line-height:1.4">{{ e.hint }}</span>
+            <div style="display:flex;gap:6px;margin-top:2px">
+              <sc-if value="{{ e.hasRetry }}">
+                <span onClick="{{ e.retry }}" style="cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.06em;color:#3ddc97;border:1px solid #1c3a33;background:#12211f;border-radius:3px;padding:3px 7px">RETRY</span>
+              </sc-if>
+              <span onClick="{{ e.copy }}" style="cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.06em;color:#9397ab;border:1px solid #33353f;background:#1b1d29;border-radius:3px;padding:3px 7px">COPY DIAGNOSTICS</span>
+              <sc-if value="{{ e.isBackend }}">
+                <span onClick="{{ e.recheck }}" style="cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.06em;color:#9184d9;border:1px solid #3a3560;background:#1b1926;border-radius:3px;padding:3px 7px">RECHECK BACKEND</span>
+              </sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="width:1000px;display:flex;gap:10px;flex-wrap:wrap">
+    <div style="flex:1;min-width:300px;border:1px solid #2a2c36;border-radius:8px;background:#13151f;padding:12px;display:flex;flex-direction:column;gap:5px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#3ddc97">HOST-SIDE, BUILDABLE TODAY</span>
+      <span style="font-size:11px;color:#9397ab;line-height:1.5">Plugin chrome and state, preset/A-B handling, host tempo and transport sync, buffer capture, tempo/key detection, section and chord estimation, monophonic and polyphonic transcription (local ML, no network), MIDI drag-out to the host.</span>
+    </div>
+    <div style="flex:1;min-width:300px;border:1px solid #2a2c36;border-radius:8px;background:#13151f;padding:12px;display:flex;flex-direction:column;gap:5px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.14em;color:#ffd166">NEEDS THE ML BACKEND</span>
+      <span style="font-size:11px;color:#9397ab;line-height:1.5">Stem separation, instrument and preset matching, effect estimation. These ship as an offline render pass or a local model service — never inside the realtime audio callback.</span>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1056,&quot;height&quot;:820},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#9184d9&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#9184d9&quot;,&quot;#3ddc97&quot;,&quot;#f2379b&quot;,&quot;#ff8b3d&quot;],&quot;section&quot;:&quot;Theme&quot;}}">
+class Component extends DCLogic {
+  state = {
+    preset: 0, ab: 'a', bypass: false, sync: true, pos: 0,
+    audio: null, analysis: null, peaks: null,
+    stems: [], mute: {}, solo: {}, selStem: null, ingest: null,
+    mode: 'recreate', analyzing: false, done: true,
+    view: 'editor',
+    selDaws: { reaper: true, universal: true, ableton: false, cubase: false, fl: false, logic: false, studioone: false },
+    expOn: { stems: true, midi: true, markers: true },
+    queue: { running: false, pct: 0, msg: '' },
+    chainSel: 'piano',
+    srcMode: { drums: 'stem', bass: 'stem', piano: 'midi', guitar: 'stem', synth: 'stem' },
+    treeOpen: { ref: true, stems: true, midi: true, struct: false, sound: false },
+    // Optional integration with the local FastAPI backend (stem separation via
+    // Demucs, transcription via pYIN/onset). Off by default — the plugin is
+    // fully usable without it. 'status' is unknown until the health check
+    // resolves, so nothing backend-related renders until we actually know.
+    backend: { url: 'http://127.0.0.1:8765', status: 'unknown', useReal: false },
+    // Centralized operation guard: at most one of load/separate/reconstruct/export
+    // runs at a time. { kind, token } while busy, null when idle.
+    busy: null,
+    // In-plugin error center — replaces alert(). Newest first, capped so it
+    // can't grow unbounded across a long session.
+    errors: [],
+    // A/B and presets snapshot the playback-affecting fields that actually
+    // exist and do something (mode, bypass, mute/solo, chain selection,
+    // source mode) — NOT instruments/effect chains/mixer values, since none
+    // of those have a real implementation yet. Switching away from a slot
+    // remembers exactly what you left it in; switching to an unvisited
+    // preset applies its seed below over whatever's currently live.
+    abSnaps: { a: null, b: null },
+    presetSnaps: [null,
+      { chainSel: 'bass', mode: 'recreate' },
+      { chainSel: 'drums', mode: 'recreate' },
+      { chainSel: 'piano', mode: 'hybrid' },
+      { chainSel: 'piano', mode: 'original' }]
+  };
+
+  presets = ['Init — Full Reverse', 'Bass · Tight Transcribe', 'Drums · Groove Capture', 'Keys · Voicing Preserve', 'Vocal · Pitch Curve Only'];
+  // Shared between renderVals() (target chips) and runRealExport() (import
+  // instructions file) so the two can't drift out of sync with each other.
+  dawDefs = [
+    { id: 'universal', name: 'MIDI + stems package', ext: 'Type 1 .mid + .wav', tier: 'UNIVERSAL', note: 'One multi-track MIDI file, named tracks, tempo map, markers. Every DAW below imports it.' },
+    { id: 'reaper', name: 'REAPER', ext: '.rpp', tier: 'BASIC NATIVE', note: 'Basic project written directly — one audio track per stem, tempo and markers. No FX, routing or automation yet.' },
+    { id: 'ableton', name: 'Ableton Live', ext: '.mid → .als', tier: 'VIA MIDI', note: 'No .als writer exists yet — File ▸ Import MIDI File, same as the other DAWs below.' },
+    { id: 'cubase', name: 'Cubase', ext: '.mid → .cpr', tier: 'VIA MIDI', note: 'File ▸ Import ▸ MIDI. Tracks, tempo and markers arrive intact.' },
+    { id: 'fl', name: 'FL Studio', ext: '.mid → .flp', tier: 'VIA MIDI', note: 'Drag the .mid in — one channel and pattern per track.' },
+    { id: 'logic', name: 'Logic Pro', ext: '.mid → .logicx', tier: 'VIA MIDI', note: 'Drop the .mid onto the tracks area; tempo map follows.' },
+    { id: 'studioone', name: 'Studio One', ext: '.mid → .song', tier: 'VIA MIDI', note: 'Song ▸ Import File. Instrument track per MIDI track.' }
+  ];
+  _opToken = 0;
+
+  componentDidMount() { this.checkBackendHealth(); }
+  componentWillUnmount() { cancelAnimationFrame(this._raf); if (this._engine) this._engine.stop(); if (this._dspP) this._dspP.then(dsp => dsp.terminate()).catch(() => {}); if (this._polyP) this._polyP.then(p => p.terminate()).catch(() => {}); if (this._dragMidiUrl) URL.revokeObjectURL(this._dragMidiUrl); }
+
+  dsp() { if (!this._dspP) this._dspP = import(new URL('beatshore-dsp-client.js', document.baseURI).href); return this._dspP; }
+  backend() { if (!this._backendP) this._backendP = import(new URL('beatshore-backend-client.js', document.baseURI).href); return this._backendP; }
+  polyphonic() { if (!this._polyP) this._polyP = import(new URL('beatshore-polyphonic-client.js', document.baseURI).href); return this._polyP; }
+  // Synchronous, unlike dsp()/backend()/polyphonic() above — _play()/_pause()
+  // are called synchronously from UI handlers, so there's no async import to
+  // await here. See beatshore-audio-engine.js for why this is the only
+  // implementation that exists (no desktop/VST3 runtime to run the others in).
+  engine() { if (!this._engine) this._engine = new window.BeatShoreWebAudioEngine(); return this._engine; }
+
+  // Chromium's DownloadURL drag-out convention is not a web standard and has
+  // no Firefox/Safari equivalent (MDN's drag-data-store docs list it as a
+  // Chromium-only extension). There's no capability probe for a dataTransfer
+  // string key, so this is a brand check, not a true feature test — but it's
+  // the same signal Chromium itself exposes for exactly this purpose.
+  supportsDragDownload() {
+    if (this._dragSupportChecked !== undefined) return this._dragSupportChecked;
+    const brands = navigator.userAgentData && navigator.userAgentData.brands;
+    const isChromium = brands
+      ? brands.some(b => /Chromium|Google Chrome|Microsoft Edge/i.test(b.brand))
+      : /Chrome|Chromium|Edg\//.test(navigator.userAgent) && !/Firefox|OPR\//.test(navigator.userAgent);
+    this._dragSupportChecked = isChromium;
+    return isChromium;
+  }
+
+  checkBackendHealth = () => {
+    this.backend().then(client => client.checkHealth(this.state.backend.url)).then(h => {
+      this.setState(st => ({ backend: Object.assign({}, st.backend, { status: h.online ? 'online' : 'offline' }) }));
+    }).catch(() => this.setState(st => ({ backend: Object.assign({}, st.backend, { status: 'offline' }) })));
+  };
+
+  // ---- operation manager: one job at a time, cancellable, stale results dropped ----
+
+  canStart() { return !this.state.busy; }
+  beginOp(kind) { const token = ++this._opToken; this.setState({ busy: { kind, token } }); return token; }
+  isCurrent(token) { return token === this._opToken; }
+  endOp(token) { if (this.isCurrent(token)) this.setState({ busy: null }); }
+
+  // Cancel button: bumps the token so any in-flight operation's results get
+  // silently dropped when they arrive, AND terminates the DSP worker pool —
+  // that's a real stop, not just a UI lie, since it kills whatever FFT/
+  // transcription work was actually mid-computation. Backend HTTP calls are
+  // only "soft" cancelled this way: the request may still finish server-side,
+  // but its result is discarded by the stale-token check when it lands.
+  cancelBusy = () => {
+    if (!this.state.busy) return;
+    this._opToken++;
+    if (this._dspP) this._dspP.then(dsp => dsp.terminate()).catch(() => {});
+    this.setState({ busy: null, analyzing: false, ingest: null, queue: { running: false, pct: 0, msg: 'Cancelled' } });
+  };
+
+  // ---- error center: replaces alert() ----
+
+  suggestFix(stage, message) {
+    const m = (message || '').toLowerCase();
+    if (m.indexOf('backend') >= 0 || m.indexOf('fetch') >= 0) return 'Check that the local backend is running at ' + this.state.backend.url + ', then retry.';
+    if (stage === 'load' && (m.indexOf('decode') >= 0 || m.indexOf('could not') >= 0)) return 'This file may be an unsupported or corrupt audio format — try converting it to WAV first.';
+    if (stage === 'export' && m.indexOf('target') >= 0) return 'Select at least one export target, and make sure stems are loaded.';
+    return 'Retry the operation. If it keeps failing, copy diagnostics for details.';
+  }
+  pushError = (stage, err, opts) => {
+    const message = (err && err.message) || String(err);
+    const entry = {
+      id: 'err' + Date.now() + Math.random().toString(36).slice(2, 7),
+      stage, message,
+      detail: (err && err.stack) || message,
+      hint: this.suggestFix(stage, message),
+      isBackend: !!(opts && opts.isBackend),
+      retry: (opts && opts.retry) || null,
+      time: new Date().toLocaleTimeString()
+    };
+    this.setState(st => ({ errors: [entry, ...st.errors].slice(0, 8) }));
+  };
+  dismissError = (id) => this.setState(st => ({ errors: st.errors.filter(e => e.id !== id) }));
+  retryError = (e) => { this.dismissError(e.id); if (e.retry) e.retry(); };
+  copyDiagnostics = (e) => {
+    const text = JSON.stringify({ stage: e.stage, message: e.message, detail: e.detail, time: e.time }, null, 2);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(() => {});
+  };
+  pickFile = () => { if (!this.canStart()) return; const el = document.getElementById('bs-plug-file'); if (el) el.click(); };
+  pickBackendFile = () => { if (!this.canStart()) return; const el = document.getElementById('bs-plug-file-backend'); if (el) el.click(); };
+  toggleUseReal = () => { if (this.state.backend.status !== 'online') return; this.setState(st => ({ backend: Object.assign({}, st.backend, { useReal: !st.backend.useReal }) })); };
+
+  roleFor(name) {
+    const n = ' ' + name.toLowerCase().replace(/\.[a-z0-9]+$/, '').replace(/[^a-z0-9]+/g, ' ') + ' ';
+    const rules = [
+      ['drums', /(drum|drms|kit|perc|kick|snare|hat)/],
+      ['bass', /(bass|808|sub)/],
+      ['vocals', /(vocal|vox|voice|acapella|acappella)/],
+      ['piano', /(piano|keys|rhodes|wurli|epiano|key)/],
+      ['guitar', /(guitar|gtr|acoustic|electric)/],
+      ['synth', /(synth|pad|arp|pluck|lead)/],
+      ['mix', /(mix|master|full|original|reference|ref)/]
+    ];
+    for (const [role, re] of rules) if (re.test(n)) return role;
+    return 'other';
+  }
+
+  onFileChange = async (e) => {
+    const files = [...(e.target.files || [])]; if (!files.length) return;
+    e.target.value = ''; // otherwise re-picking the exact same file(s) doesn't fire another change event
+    if (!this.canStart()) return; // another operation is already running
+    this._lastLoadFiles = files; // kept around so a failed load can be retried without re-picking
+    const token = this.beginOp('load');
+    const total = files.length;
+    let done = 0;
+    this.setState({ analyzing: true, ingest: { done: 0, total, name: files[0].name } });
+    try {
+      const dsp = await this.dsp();
+      const engine = this.engine();
+      this._bufs = this._bufs || {};
+      const existing = this.state.stems ? this.state.stems.slice() : [];
+      // decode + analyze every file concurrently — independent analysis calls
+      // (loudness/peaks/tempo/key per file) spread across the worker pool
+      const added = await Promise.all(files.map(async (file, i) => {
+        const buf = await engine.decodeAudioData((await file.arrayBuffer()).slice(0));
+        const id = 'st' + Date.now() + '_' + i;
+        const [lufs, peaks, tempo, key] = await Promise.all([
+          dsp.loudness(buf), dsp.computePeaks(buf, 700), dsp.estimateTempo(buf), dsp.estimateKey(buf)
+        ]);
+        this._bufs[id] = buf;
+        done++;
+        if (this.isCurrent(token)) this.setState({ ingest: { done, total, name: file.name } });
+        return {
+          id, name: file.name, role: this.roleFor(file.name),
+          duration: buf.duration, sampleRate: buf.sampleRate, channels: buf.numberOfChannels,
+          lufs, peaks, tempo, key
+        };
+      }));
+      if (!this.isCurrent(token)) return; // cancelled or superseded mid-flight — drop these results
+      const stems = existing.concat(added);
+      await this.finishLoadingStems(stems, dsp, token);
+      this.endOp(token);
+    } catch (err) {
+      if (!this.isCurrent(token)) return; // cancelled — don't surface an error for a job we already gave up on
+      this.setState({ analyzing: false, ingest: null, busy: null });
+      this.pushError('load', err, { retry: () => { const files = this._lastLoadFiles; if (files) this.onFileChange({ target: { files, value: '' } }); } });
+    }
+  };
+
+  // shared tail end of "stems changed" — picks the reference (longest) stem,
+  // runs structure/chord analysis on it, and commits everything to state.
+  // Used by both local file loading and backend separation.
+  finishLoadingStems = async (stems, dsp, token) => {
+    const longest = stems.reduce((a, b) => (b.duration > a.duration ? b : a), stems[0]);
+    const lead = this._bufs[longest.id];
+    const [struct, chords] = await Promise.all([dsp.analyzeStructure(lead), dsp.chordTrack(lead)]);
+    if (token != null && !this.isCurrent(token)) return; // cancelled or superseded — don't commit stale results
+    const k = longest.key;
+    this._buf = lead; this._offset = 0;
+    const mute = Object.assign({}, this.state.mute), solo = Object.assign({}, this.state.solo);
+    stems.forEach(st => { if (!(st.id in mute)) mute[st.id] = false; if (!(st.id in solo)) solo[st.id] = false; });
+    this.setState({
+      analyzing: false, playing: false, pos: 0, ingest: null, stems, mute, solo,
+      selStem: this.state.selStem || longest.id, // longest is what peaks/audio/_buf below are set from — keep selection consistent
+      peaks: longest.peaks,
+      audio: { name: longest.name, duration: longest.duration, sampleRate: longest.sampleRate, channels: longest.channels },
+      analysis: { tempo: longest.tempo, key: k.key, mode: k.mode, sections: struct.sections, chords }
+    });
+  };
+
+  // Optional path: upload a single mixed file to the local backend, separate
+  // it with Demucs, pull the resulting stems back down and analyze them with
+  // the same local heuristic DSP used everywhere else. Each stem is tagged
+  // with backendPid/backendKind so reconstruct() knows it can ask the backend
+  // for real transcription instead of the JS heuristic.
+  separateViaBackend = async (e) => {
+    const file = e.target.files && e.target.files[0]; if (!file) return;
+    e.target.value = '';
+    if (!this.canStart()) return;
+    this._lastSeparateFile = file;
+    const token = this.beginOp('separate');
+    const url = this.state.backend.url;
+    this.setState({ analyzing: true, ingest: { done: 0, total: 1, name: 'Uploading ' + file.name } });
+    try {
+      const backend = await this.backend();
+      const proj = await backend.createProject(url, file);
+      if (!this.isCurrent(token)) return;
+      this.setState({ ingest: { done: 0, total: 1, name: 'Separating with Demucs — this can take a few minutes…' } });
+      const sep = await backend.separate(url, proj.id, 'balanced');
+      if (!this.isCurrent(token)) return;
+      if (!sep.stems || !sep.stems.length) throw new Error('Backend returned no stems');
+
+      const dsp = await this.dsp();
+      const engine = this.engine();
+      this._bufs = this._bufs || {};
+      const total = sep.stems.length;
+      let done = 0;
+      const added = await Promise.all(sep.stems.map(async (s) => {
+        const blob = await backend.fetchStemAudio(url, proj.id, s.name);
+        const buf = await engine.decodeAudioData(await blob.arrayBuffer());
+        const id = 'bk' + proj.id + '_' + s.name;
+        const [lufs, peaks, tempo, key] = await Promise.all([
+          dsp.loudness(buf), dsp.computePeaks(buf, 700), dsp.estimateTempo(buf), dsp.estimateKey(buf)
+        ]);
+        this._bufs[id] = buf;
+        done++;
+        if (this.isCurrent(token)) this.setState({ ingest: { done, total, name: s.name + '.wav (backend)' } });
+        return {
+          id, name: s.name + '.wav', role: s.name,
+          duration: buf.duration, sampleRate: buf.sampleRate, channels: buf.numberOfChannels,
+          lufs, peaks, tempo, key,
+          backendPid: proj.id, backendKind: s.name, backendEngine: sep.engine
+        };
+      }));
+      if (!this.isCurrent(token)) return;
+      const existing = this.state.stems ? this.state.stems.slice() : [];
+      await this.finishLoadingStems(existing.concat(added), dsp, token);
+      this.endOp(token);
+    } catch (err) {
+      if (!this.isCurrent(token)) return;
+      this.setState({ analyzing: false, ingest: null, busy: null });
+      this.pushError('separate', err, {
+        isBackend: true,
+        retry: () => { const f = this._lastSeparateFile; if (f) this.separateViaBackend({ target: { files: [f], value: '' } }); }
+      });
+    }
+  };
+
+  reconstruct = async () => {
+    const stems = this.state.stems || [];
+    if (!stems.length) { this.pickFile(); return; }
+    if (!this.canStart()) return;
+    const token = this.beginOp('reconstruct');
+    const total = stems.length;
+    let done = 0;
+    this.setState({ analyzing: true, ingest: { done: 0, total, name: stems[0].name } });
+    try {
+      const dsp = await this.dsp();
+      const tempo = this.state.analysis ? this.state.analysis.tempo : 120;
+
+      // if "use real separation/transcription" is on and any stems came from
+      // the backend, fetch real transcription for that whole project once —
+      // /transcribe runs on the server's fixed vocals/bass/drums/other layout,
+      // not per-stem, so there's nothing to gain by calling it per stem
+      const useReal = this.state.backend.useReal && this.state.backend.status === 'online';
+      const backendPids = useReal ? Array.from(new Set(stems.filter(t => t.backendPid).map(t => t.backendPid))) : [];
+      const backendNotesByPid = {};
+      if (backendPids.length) {
+        const backend = await this.backend();
+        const url = this.state.backend.url;
+        await Promise.all(backendPids.map(async (pid) => {
+          try {
+            const res = await backend.transcribe(url, pid);
+            const byKind = {};
+            await Promise.all((res.tracks || []).map(async (t) => {
+              if (t.error || !t.file) return;
+              const notes = await backend.fetchNotes(url, pid, t.file);
+              const caveat = t.stem === 'other' ? ' (monophonic — "other" is likely polyphonic, treat as approximate)' : '';
+              byKind[t.stem] = { notes, method: 'backend: ' + t.method + caveat };
+            }));
+            backendNotesByPid[pid] = byKind;
+          } catch (err) { backendNotesByPid[pid] = {}; }
+        }));
+      }
+
+      // every stem's pipeline runs concurrently — the pool spreads them across cores
+      // instead of transcribing one stem at a time
+      const out = await Promise.all(stems.map(async (t) => {
+        const buf = this._bufs[t.id];
+        const timbre = await dsp.timbreProfile(buf);
+        let notes = null, method = null;
+        const fromBackend = t.backendPid && backendNotesByPid[t.backendPid] && backendNotesByPid[t.backendPid][t.backendKind];
+        if (fromBackend) { notes = fromBackend.notes; method = fromBackend.method; }
+        else if (t.role === 'drums') { notes = await dsp.transcribeDrums(buf); method = 'onset + band split'; }
+        else if (t.role === 'bass') { notes = await dsp.transcribeMono(buf, { fmin: 35, fmax: 400 }); method = 'monophonic pitch track'; }
+        else if (t.role === 'vocals' || t.role === 'synth') { notes = await dsp.transcribeMono(buf, { fmin: 80, fmax: 1200 }); method = 'monophonic pitch track'; }
+        else if (t.role === 'piano' || t.role === 'guitar') {
+          try {
+            const poly = await this.polyphonic();
+            notes = await poly.transcribePolyphonic(buf, pct => {
+              if (this.isCurrent(token)) this.setState({ ingest: { done, total, name: t.name + ' — basic-pitch ' + Math.round(pct * 100) + '%' } });
+            });
+            method = 'polyphonic (basic-pitch, local ML)';
+          } catch (err) { method = 'polyphonic transcription failed: ' + (err && err.message || err); }
+        }
+        else { method = null; }
+        const hum = notes ? await dsp.humanizeStats(notes, tempo) : null;
+        done++;
+        if (this.isCurrent(token)) this.setState({ ingest: { done, total, name: t.name } });
+        return Object.assign({}, t, { timbre, notes, method, hum });
+      }));
+      if (!this.isCurrent(token)) return;
+      this.setState({ stems: out, analyzing: false, ingest: null, busy: null }, () => this._refreshDragMidi());
+    } catch (err) {
+      if (!this.isCurrent(token)) return;
+      this.setState({ analyzing: false, ingest: null, busy: null });
+      this.pushError('reconstruct', err, { retry: () => this.reconstruct() });
+    }
+  };
+
+  // Web Crypto's subtle.digest needs a secure context — true for https and
+  // for localhost, both of which cover every way this plugin actually runs.
+  async sha256Hex(blob) {
+    const buf = await blob.arrayBuffer();
+    const hash = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  runRealExport = async () => {
+    const s = this.state, stems = s.stems || [];
+    if (!stems.length || !s.analysis) { this.pickFile(); return; }
+    const targets = Object.keys(s.selDaws).filter(k => s.selDaws[k]);
+    if (!targets.length) { this.setState({ queue: { running: false, pct: 0, msg: 'Select at least one target' } }); return; }
+    if (!this.canStart()) return;
+    const token = this.beginOp('export');
+    this.setState({ queue: { running: true, pct: 10, msg: 'Building package…' } });
+    try {
+      const dsp = await this.dsp();
+      const A = s.analysis;
+      const files = [];
+      const midiTracks = stems.filter(t => t.notes && t.notes.length).map(t => ({ name: t.role.toUpperCase() + ' — ' + t.name, notes: t.notes, drums: t.role === 'drums' }));
+      const markers = s.expOn.markers ? (A.sections || []).map(x => ({ time: x.time, label: x.label })) : [];
+      const exportTasks = [];
+      if (s.expOn.stems) {
+        exportTasks.push(Promise.all(stems.map(async (t) => ({
+          name: 'stems/' + t.name.replace(/\.[^.]+$/, '') + '.wav',
+          blob: await dsp.encodeWAV(this._bufs[t.id])
+        }))).then(wavFiles => files.push(...wavFiles)));
+      }
+      if (s.expOn.midi && midiTracks.length) {
+        exportTasks.push(dsp.encodeMIDITracks(A.tempo, midiTracks, markers).then(blob => files.push({ name: 'beatshore_reconstruction.mid', blob })));
+      }
+      if (targets.indexOf('reaper') >= 0) {
+        // one audio track per stem — still no FX/routing/automation, see dawDefs' reaper note
+        const stemFiles = stems.map(t => ({ name: t.role.toUpperCase() + ' — ' + t.name, path: 'stems/' + t.name.replace(/\.[^.]+$/, '') + '.wav', duration: t.duration }));
+        exportTasks.push(dsp.buildRPP(A.tempo, markers, stemFiles)
+          .then(rppText => files.push({ name: 'beatshore.rpp', blob: new Blob([rppText], { type: 'text/plain' }) })));
+      }
+      // stems, MIDI and the RPP are independent of each other — build them concurrently
+      await Promise.all(exportTasks);
+      const sheet = stems.map(t => {
+        const tb = t.timbre;
+        return '— ' + t.name + '  [' + t.role + ']\n' +
+          '   tempo ' + t.tempo.toFixed(2) + ' BPM · key ' + t.key.key + ' ' + t.key.mode + ' · ' + t.lufs + ' dB\n' +
+          (tb ? '   measured timbre: centroid ' + tb.centroid + ' Hz · rolloff85 ' + tb.rolloff + ' Hz · flatness ' + tb.flatness + ' · attack ' + tb.attackMs + ' ms\n' : '') +
+          (t.notes ? '   transcribed: ' + t.notes.length + ' notes (' + t.method + ')\n' : '   transcription: ' + (t.method || 'not run') + '\n') +
+          (t.hum ? '   performance: timing dev ' + t.hum.timingDevMs + ' ms · spread ' + t.hum.timingSpreadMs + ' ms · vel ' + t.hum.velMin + '-' + t.hum.velMax + ' · swing ' + t.hum.swingPct + '%\n' : '');
+      }).join('\n');
+      files.push({ name: 'RECONSTRUCTION.txt', blob: new Blob([
+        'BeatShore Reverse Studio — reconstruction report\n\n' +
+        'tempo ' + A.tempo.toFixed(2) + ' BPM · key ' + A.key + ' ' + A.mode + ' · sections ' + (A.sections || []).length + '\n' +
+        'targets: ' + targets.join(', ') + '\n\n' + sheet +
+        '\nREAL: stems, measured timbre, monophonic + drum + polyphonic (local ML, basic-pitch) transcription, tempo/key/sections, MIDI, basic REAPER project.\n' +
+        'PENDING BACKEND: plugin/preset matching, FX estimation. No Ableton .als writer — the format is proprietary and undocumented enough that an untested writer would risk producing a file that looks valid but fails to open; Ableton stays MIDI-import only until this can be verified against real Ableton Live.\n'
+      ], { type: 'text/plain' }) });
+
+      // per-DAW import instructions — same copy the target chips show in the
+      // UI, so the two can't say different things about the same target
+      const instructions = targets.map(id => {
+        const d = this.dawDefs.find(x => x.id === id);
+        return d ? '— ' + d.name + '  [' + d.tier + ']\n   ' + d.note + '\n' : '';
+      }).join('\n');
+      files.push({ name: 'IMPORT_INSTRUCTIONS.txt', blob: new Blob([
+        'BeatShore Reverse Studio — how to bring this into each selected DAW\n\n' + instructions
+      ], { type: 'text/plain' }) });
+
+      if (!this.isCurrent(token)) return;
+      this.setState({ queue: { running: true, pct: 60, msg: 'Checksumming ' + files.length + ' files…' } });
+      // export-version metadata + a checksum per file, so a corrupted or
+      // partial re-download can be caught instead of silently used
+      const checksums = await Promise.all(files.map(async f => ({
+        name: f.name, size: f.blob.size, sha256: await this.sha256Hex(f.blob)
+      })));
+      const manifest = {
+        exportVersion: 1,
+        generatedAt: new Date().toISOString(),
+        tempo: A.tempo, key: A.key + ' ' + A.mode,
+        targets, stemCount: stems.length,
+        files: checksums
+      };
+      files.push({ name: 'EXPORT_MANIFEST.json', blob: new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' }) });
+
+      if (!this.isCurrent(token)) return;
+      this.setState({ queue: { running: true, pct: 70, msg: 'Zipping ' + files.length + ' files…' } });
+      const zip = await dsp.zipStore(files);
+      if (!this.isCurrent(token)) return;
+      dsp.download(zip, 'beatshore_session.zip');
+      this.setState({ queue: { running: false, pct: 100, msg: 'Wrote ' + files.length + ' files · ' + (zip.size / 1e6).toFixed(1) + ' MB' }, busy: null });
+    } catch (err) {
+      if (!this.isCurrent(token)) return;
+      this.setState({ queue: { running: false, pct: 0, msg: 'Export failed: ' + (err && err.message || err) }, busy: null });
+      this.pushError('export', err, { retry: () => this.runRealExport() });
+    }
+  };
+
+  notesRoll(notes, color, dur) {
+    const los = notes.map(n => n.midi), lo = Math.min(...los) - 1, hi = Math.max(...los) + 1;
+    const span = Math.max(6, hi - lo), total = dur || notes[notes.length - 1].time + 1;
+    const g = [];
+    for (let i = 1; i < 16; i++) g.push(React.createElement('line', { key: 'v' + i, x1: i * 62.5, x2: i * 62.5, y1: 0, y2: 200, stroke: i % 4 === 0 ? '#33353f' : '#20222c', strokeWidth: 1 }));
+    const rects = notes.map((n, i) => React.createElement('rect', {
+      key: i, x: (n.time / total) * 1000, y: 200 - ((n.midi - lo) / span) * 196 - 5,
+      width: Math.max(1.5, (n.dur / total) * 1000), height: Math.max(3, 190 / span), rx: 1.5,
+      fill: color, opacity: 0.35 + 0.65 * (n.vel / 127)
+    }));
+    return React.createElement('svg', { viewBox: '0 0 1000 200', preserveAspectRatio: 'none', style: { position: 'absolute', inset: 0, width: '100%', height: '100%' } }, g, rects);
+  }
+
+  audibleIds() {
+    const s = this.state, stems = s.stems || [];
+    const anySolo = stems.some(t => s.solo[t.id]);
+    return stems.filter(t => (anySolo ? s.solo[t.id] : true) && !s.mute[t.id]).map(t => t.id);
+  }
+  clearStems = () => {
+    try { this._pause(); } catch (e) {}
+    this._bufs = {}; this._buf = null; this._offset = 0;
+    this.setState({ stems: [], mute: {}, solo: {}, selStem: null, peaks: null, audio: null, analysis: null, playing: false, pos: 0 });
+  };
+  // Role change invalidates any prior analysis run under the old role —
+  // notes/method/timbre/hum stay stale otherwise (e.g. drum hits surviving a
+  // relabel to piano). Clearing them means the UI honestly falls back to
+  // "not transcribed" until Reconstruct runs again for the new role.
+  setRole = (id, role) => this.setState(st => ({
+    stems: st.stems.map(t => t.id === id ? Object.assign({}, t, { role, notes: null, method: null, timbre: null, hum: null }) : t)
+  }));
+  toggleMute = (id) => this.setState(st => Object.assign({}, { mute: Object.assign({}, st.mute, { [id]: !st.mute[id] }) }), () => this.restart());
+  toggleSolo = (id) => this.setState(st => Object.assign({}, { solo: Object.assign({}, st.solo, { [id]: !st.solo[id] }) }), () => this.restart());
+  restart() { if (this.state.playing) { this._pause(); this._play(); } }
+
+  // Original/Recreate/Hybrid + Bypass, made real. There's no synthesis
+  // engine — nothing actually builds a "recreated" instrument — so the
+  // honest local equivalent is gain-based: once a stem has a real
+  // transcription, Recreate silences it (there's genuinely nothing to play
+  // in its place yet) and Hybrid plays it at -6dB rather than pretending a
+  // blend happened. Bypass always wins and forces the untouched source.
+  routeGain(stem) {
+    if (this.state.bypass) return 1;
+    if (!stem || !stem.notes || !stem.notes.length) return 1;
+    if (this.state.mode === 'recreate') return 0;
+    if (this.state.mode === 'hybrid') return 0.5;
+    return 1;
+  }
+
+  // Selecting a stem switches the master transport clock (_buf) to that
+  // stem's own buffer, so the waveform, playhead position and displayed
+  // duration always describe the same audio — previously _buf stayed pinned
+  // to the original reference buffer regardless of what was selected, so a
+  // shorter/longer stem's playhead would drift from what was drawn.
+  // Alignment policy: every buffer starts at its own t=0 (zero-based,
+  // sample-accurate); stems shorter than the current transport just go
+  // silent after their own end instead of being padded or trimmed.
+  selectStem = (t) => {
+    const wasPlaying = this.state.playing;
+    if (wasPlaying) this._pause();
+    this._buf = this._bufs[t.id]; this._offset = 0;
+    this.setState({
+      selStem: t.id, peaks: t.peaks, pos: 0,
+      audio: { name: t.name, duration: t.duration, sampleRate: t.sampleRate, channels: t.channels }
+    }, () => { if (wasPlaying) this._play(); this._refreshDragMidi(); });
+  };
+
+  // A/B and presets both snapshot/restore this same set of fields — the only
+  // ones that actually affect anything (see the state comment above). No
+  // instruments/mixer/effect chain fields exist to snapshot yet.
+  snapshotFields() {
+    const s = this.state;
+    return { mode: s.mode, bypass: s.bypass, mute: Object.assign({}, s.mute), solo: Object.assign({}, s.solo), chainSel: s.chainSel, srcMode: Object.assign({}, s.srcMode) };
+  }
+  switchAB = (target) => {
+    if (this.state.ab === target) return;
+    const current = this.snapshotFields();
+    const abSnaps = Object.assign({}, this.state.abSnaps, { [this.state.ab]: current });
+    const restore = abSnaps[target] || current;
+    this.setState(Object.assign({ ab: target, abSnaps }, restore), () => this.restart());
+  };
+  // Switching presets remembers exactly what you left the old slot in (so
+  // round-tripping A -> B -> A is lossless) and applies the target's stored
+  // state — its seed seen once, then whatever you last set it to after that.
+  // This covers "parameter data" and "plugin-state restoration"; save/rename/
+  // delete and factory-vs-user marking would need real persistence + naming
+  // UI that doesn't exist here, so those stay out of scope.
+  switchPreset = (nextIndex) => {
+    const s = this.state;
+    if (nextIndex === s.preset) return;
+    const current = this.snapshotFields();
+    const presetSnaps = s.presetSnaps.slice();
+    presetSnaps[s.preset] = current;
+    const stored = presetSnaps[nextIndex];
+    const restore = stored ? Object.assign({}, current, stored) : current;
+    this.setState(Object.assign({ preset: nextIndex, presetSnaps }, restore), () => this.restart());
+  };
+
+  // Pre-generates a real MIDI file for the selected stem so dragMidi can
+  // attach it synchronously at dragstart (drag events can't await async
+  // work once the drag has begun). No-ops when the stem has no transcription
+  // yet, or the DSP worker pool isn't loaded.
+  _refreshDragMidi = async () => {
+    const s = this.state;
+    const stem = (s.stems || []).find(t => t.id === s.selStem);
+    if (!stem || !stem.notes || !stem.notes.length) { this._dragMidiKey = null; return; }
+    const key = stem.id + ':' + stem.notes.length;
+    if (this._dragMidiKey === key) return;
+    try {
+      const dsp = await this.dsp();
+      const tempo = s.analysis ? s.analysis.tempo : 120;
+      const track = { name: stem.role.toUpperCase() + ' — ' + stem.name, notes: stem.notes, drums: stem.role === 'drums' };
+      const blob = await dsp.encodeMIDITracks(tempo, [track], []);
+      if (this.state.selStem !== stem.id) return; // selection moved on while this was generating
+      if (this._dragMidiUrl) URL.revokeObjectURL(this._dragMidiUrl);
+      this._dragMidiUrl = URL.createObjectURL(blob);
+      this._dragMidiFilename = 'beatshore_' + stem.role + '.mid';
+      this._dragMidiKey = key;
+      this.forceUpdate(); // _dragMidiUrl/_dragMidiKey are instance fields, not state — nothing else would repaint the drag hint/data
+    } catch (e) { this._dragMidiKey = null; }
+  };
+
+  // Resolves routing (which stems, what gain) and hands the result to the
+  // engine — this method has no AudioContext/AudioBuffer-node code of its
+  // own anymore, so it works unchanged against any engine implementing the
+  // interface in beatshore-audio-engine.js.
+  _play() {
+    const buf = this._buf; if (!buf) return;
+    const engine = this.engine();
+    const off = this._offset || 0;
+    const ids = this.audibleIds();
+    const stemsById = {}; (this.state.stems || []).forEach(t => { stemsById[t.id] = t; });
+    let sources;
+    if (ids.length) {
+      // scaled down as more stems sum together, so N full-level stems don't
+      // just add up past 0 dBFS before the limiter even has to act
+      const baseGain = 1 / Math.sqrt(Math.max(1, ids.length));
+      sources = ids.map(id => ({ buffer: this._bufs[id], gain: baseGain * this.routeGain(stemsById[id]) }));
+    } else {
+      sources = [{ buffer: buf, gain: this.routeGain(stemsById[this.state.selStem]) }];
+    }
+    engine.play(sources, off);
+    this.setState({ playing: true });
+    cancelAnimationFrame(this._raf);
+    const tick = () => {
+      const t = engine.getElapsed();
+      if (t >= buf.duration) { this._offset = 0; this.setState({ playing: false, pos: 0 }); return; }
+      this.setState({ pos: (t / buf.duration) * 100 });
+      this._raf = requestAnimationFrame(tick);
+    };
+    this._raf = requestAnimationFrame(tick);
+  }
+  _pause() {
+    const engine = this.engine();
+    this._offset = Math.max(0, engine.getElapsed());
+    engine.stop();
+    cancelAnimationFrame(this._raf); this.setState({ playing: false });
+  }
+  togglePlay = () => { if (!this._buf) return; if (this.state.playing) this._pause(); else this._play(); };
+  seekTo = (frac) => {
+    const buf = this._buf; if (!buf) return;
+    this._offset = Math.max(0, Math.min(buf.duration, frac * buf.duration));
+    if (this.state.playing) { this.engine().stop(); cancelAnimationFrame(this._raf); this._play(); }
+    else this.setState({ pos: frac * 100 });
+  };
+  realWave(peaks) {
+    const N = peaks.length, bars = [];
+    for (let i = 0; i < N; i++) { const a = peaks[i], h = Math.max(0.6, a * 62); bars.push(React.createElement('rect', { key: i, x: i * (1000 / N), y: 34 - h / 2, width: Math.max(0.4, 1000 / N - 0.3), height: h, fill: '#aeb4d6', opacity: 0.4 + 0.6 * a })); }
+    return React.createElement('svg', { viewBox: '0 0 1000 68', preserveAspectRatio: 'none', style: { position: 'absolute', inset: 0, width: '100%', height: '100%' } }, bars);
+  }
+
+  rnd(s) { const x = Math.sin(s * 12.9898) * 43758.5453; return x - Math.floor(x); }
+
+  wave(seed) {
+    const N = 300, bars = [];
+    for (let i = 0; i < N; i++) {
+      const t = i / N;
+      let a = 0.3 + 0.7 * this.rnd(seed + i * 1.7);
+      a *= t < 0.06 ? 0.2 : t > 0.95 ? 0.25 : 0.5 + 0.5 * Math.sin(t * 7);
+      const h = Math.max(0.6, a * 62);
+      bars.push(React.createElement('rect', { key: i, x: i * (1000 / N), y: 34 - h / 2, width: 1000 / N - 0.4, height: h, fill: '#aeb4d6', opacity: 0.4 + 0.6 * a }));
+    }
+    return React.createElement('svg', { viewBox: '0 0 1000 68', preserveAspectRatio: 'none', style: { position: 'absolute', inset: 0, width: '100%', height: '100%' } }, bars);
+  }
+
+  roll(seed, color) {
+    const g = [], notes = [];
+    for (let i = 1; i < 32; i++) g.push(React.createElement('line', { key: 'v' + i, x1: i * 31.25, x2: i * 31.25, y1: 0, y2: 200, stroke: i % 4 === 0 ? '#33353f' : '#20222c', strokeWidth: 1 }));
+    for (let i = 1; i < 16; i++) g.push(React.createElement('line', { key: 'h' + i, x1: 0, x2: 1000, y1: i * 12.5, y2: i * 12.5, stroke: '#181a27', strokeWidth: 1 }));
+    for (let i = 0; i < 90; i++) {
+      if (this.rnd(seed + i * 2.3) < 0.5) continue;
+      const x = Math.floor(this.rnd(seed + i * 4.1) * 62) * 15.6;
+      const w = (1 + Math.floor(this.rnd(seed + i * 6.7) * 3)) * 13;
+      const y = Math.floor(this.rnd(seed + i * 8.9) * 15) * 12.5 + 1;
+      notes.push(React.createElement('rect', { key: i, x, y, width: w, height: 10.5, rx: 2, fill: color, opacity: 0.45 + 0.55 * this.rnd(seed + i * 11) }));
+    }
+    return React.createElement('svg', { viewBox: '0 0 1000 200', preserveAspectRatio: 'none', style: { position: 'absolute', inset: 0, width: '100%', height: '100%', background: '#111220' } }, g, notes);
+  }
+
+  keys() {
+    const k = [], pat = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0];
+    for (let i = 0; i < 16; i++) {
+      const black = pat[i % 12] === 1;
+      k.push(React.createElement('rect', { key: i, x: 0, y: i * 12.5, width: black ? 22 : 34, height: 12, fill: black ? '#1a1c28' : '#2a2c36', stroke: '#131520' }));
+    }
+    return React.createElement('svg', { viewBox: '0 0 34 200', preserveAspectRatio: 'none', style: { width: '100%', height: '100%', display: 'block' } }, k);
+  }
+
+  renderVals() {
+    const s = this.state;
+    // true when a DIFFERENT operation is running — used to visually disable
+    // controls that would otherwise let a second job start mid-flight
+    const busyOther = kind => !!s.busy && s.busy.kind !== kind;
+    const accent = this.props.accent || '#9184d9';
+    const colors = { vox: '#f2379b', drums: '#ff8b3d', bass: '#3ddc97', keys: accent, gtr: '#ffd166', other: '#9397ab' };
+    // Gain-based, not synthesis-based (see routeGain) — Recreate silences a
+    // transcribed stem outright since nothing plays in its place yet.
+    const modeMeta = {
+      original: ['Original', 'Play every stem at normal level — no processing applied.'],
+      recreate: ['Recreate', 'Silence any stem with a transcription — no instrument exists yet to play instead.'],
+      hybrid: ['Hybrid', 'Play transcribed stems at -6 dB, standing in for an instrument that isn’t built yet.']
+    };
+
+    const vwStyle = v => 'height:20px;padding:0 9px;border-radius:3px;cursor:pointer;font-family:JetBrains Mono,monospace;font-size:8px;letter-spacing:.1em;white-space:nowrap;border:none;background:' + (s.view === v ? 'rgba(145,132,217,.16)' : 'transparent') + ';color:' + (s.view === v ? '#d2cefd' : '#9397ab');
+    const dawDefs = this.dawDefs;
+    const chainDefs = [
+      { id: 'drums', name: 'Drums' },
+      { id: 'bass', name: 'Bass' },
+      { id: 'piano', name: 'Piano' },
+      { id: 'guitar', name: 'Guitar' },
+      { id: 'synth', name: 'Synth Lead' }
+    ];
+    const chain = chainDefs.find(c => c.id === s.chainSel) || chainDefs[0];
+    const chainStem = (s.stems || []).find(t => t.role === chain.id) || null;
+    const curMode = s.srcMode[chain.id] || 'stem';
+    const stemColors = { drums: '#ff8b3d', bass: '#3ddc97', piano: '#9184d9', guitar: '#ffd166', synth: '#2ee6f0', vocals: '#f2379b' };
+
+    const stemList = s.stems || [];
+    const roleColors = { drums: '#ff8b3d', bass: '#3ddc97', piano: '#9184d9', guitar: '#ffd166', synth: '#2ee6f0', vocals: '#f2379b', mix: '#9397ab', other: '#75798c' };
+    const A = s.analysis, au = s.audio, buf = this._buf;
+    const refStem = stemList.find(t => t.role === 'mix') || null;
+    const midiStems = stemList.filter(t => t.notes && t.notes.length);
+    const measured = stemList.filter(t => t.timbre);
+    const selStemObj = stemList.find(t => t.id === s.selStem) || null;
+    const pendBadge = 'PENDING';
+    const groupDefs = [
+      { id: 'ref', label: 'REFERENCE AUDIO', count: refStem ? 1 : 0, kids: [refStem ? { name: refStem.name, badge: 'REAL', real: true, color: '#9397ab' } : { name: 'No reference mix loaded', badge: pendBadge, color: '#3f424d' }] },
+      { id: 'stems', label: 'AUDIO STEMS', count: stemList.length, note: stemList.length ? null : 'Load stems, or wait for the separation model', kids: stemList.length ? stemList.map(t => ({ id: t.id, kind: 'stem', name: t.name, badge: 'REAL', real: true })) : [{ name: 'No stems loaded', badge: pendBadge }] },
+      { id: 'midi', label: 'EDITABLE MIDI', count: midiStems.length, note: midiStems.length ? null : (stemList.length ? 'Run Reconstruct all stems' : 'Load stems first'), kids: midiStems.length ? midiStems.map(t => ({ id: t.id, kind: 'midi', name: t.role.toUpperCase() + ' MIDI · ' + t.notes.length + ' notes', badge: 'REAL', real: true })) : [{ name: stemList.length ? 'Not transcribed yet' : 'No stems', badge: pendBadge }] },
+      { id: 'struct', label: 'TEMPO / STRUCTURE', count: A ? 3 : 0, kids: [
+        { name: 'Tempo map · ' + (A ? A.tempo.toFixed(2) : '—'), badge: A ? 'REAL' : pendBadge, real: !!A },
+        { name: 'Time signature · —', badge: 'NOT DETECTED' },
+        { name: 'Key · ' + (A ? A.key + ' ' + A.mode : '—'), badge: A ? 'REAL' : pendBadge, real: !!A },
+        { name: 'Section markers · ' + (A && A.sections ? A.sections.length : 0), badge: A ? 'REAL' : pendBadge, real: !!A }
+      ] },
+      { id: 'sound', label: 'SOUND RECONSTRUCTION', count: measured.length, note: measured.length ? null : 'Run Reconstruct all stems', kids: measured.length ? measured.map(t => ({ id: t.id, kind: 'midi', name: t.role.toUpperCase() + ' · centroid ' + t.timbre.centroid + ' Hz · attack ' + t.timbre.attackMs + ' ms', badge: 'REAL', real: true })) : [{ name: 'No timbre measured', badge: pendBadge }] }
+    ];
+    const treeRows = [];
+    groupDefs.forEach(g => {
+      const open = !!s.treeOpen[g.id];
+      treeRows.push({
+        name: g.label, glyph: open ? '▾' : '▸', badge: String(g.count),
+        click: () => this.setState(st => ({ treeOpen: Object.assign({}, st.treeOpen, { [g.id]: !st.treeOpen[g.id] }) })),
+        row: 'display:flex;align-items:center;gap:6px;padding:5px 6px;border-radius:4px;cursor:pointer;background:transparent',
+        glyphStyle: "font-family:'JetBrains Mono',monospace;font-size:8px;color:#75798c;flex:none;width:8px",
+        nameStyle: "flex:1;min-width:0;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.12em;color:#9397ab;white-space:nowrap;overflow:hidden;text-overflow:ellipsis",
+        badgeStyle: "font-family:'JetBrains Mono',monospace;font-size:8px;color:#75798c;flex:none"
+      });
+      if (!open) return;
+      if (g.note) treeRows.push({
+        name: g.note, glyph: '', badge: '',
+        click: () => {},
+        row: 'display:flex;align-items:center;gap:6px;padding:2px 6px 5px 18px',
+        glyphStyle: 'width:3px;flex:none',
+        nameStyle: 'flex:1;min-width:0;font-size:9.5px;font-style:italic;color:#75798c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis',
+        badgeStyle: 'flex:none'
+      });
+      g.kids.forEach(k => {
+        const selectable = !!k.kind && k.id !== 'vocals';
+        const active = selectable && k.id === s.chainSel;
+        treeRows.push({
+          name: k.name, glyph: '', badge: k.badge,
+          click: selectable ? () => this.setState({ chainSel: k.id }) : () => {},
+          row: 'display:flex;align-items:center;gap:6px;padding:5px 6px 5px 18px;border-radius:4px;cursor:' + (selectable ? 'pointer' : 'default') + ';border:1px solid ' + (active ? 'rgba(145,132,217,.4)' : 'transparent') + ';background:' + (active ? 'rgba(145,132,217,.08)' : 'transparent'),
+          glyphStyle: 'width:3px;height:11px;border-radius:2px;flex:none;background:' + (k.real ? '#3ddc97' : '#3f424d'),
+          nameStyle: 'flex:1;min-width:0;font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:' + (k.real ? '#cfd3e5' : '#75798c'),
+          badgeStyle: "font-family:'JetBrains Mono',monospace;font-size:7.5px;letter-spacing:.08em;flex:none;color:" + (k.real ? '#3ddc97' : '#75798c')
+        });
+      });
+    });
+    const treeSummary = midiStems.length ? (stemList.length + ' stems · ' + midiStems.length + ' MIDI') : stemList.length ? (stemList.length + ' stems · not transcribed') : 'awaiting audio';
+    const nSel = Object.values(s.selDaws).filter(Boolean).length;
+    const fmtTime = t => String(Math.floor(t/60)).padStart(2,'0') + ':' + String(Math.floor(t%60)).padStart(2,'0') + '.' + String(Math.floor((t%1)*1000)).padStart(3,'0');
+    const pendingPill = "font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;padding:2px 6px;border-radius:3px;white-space:nowrap;flex:none;align-self:flex-start;background:#2a2413;color:#ffd166;border:1px solid #4a3d1a";
+    const dim = "font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#75798c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+    const live = "font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#e9e9ed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+
+    return {
+      presetName: this.presets[s.preset],
+      prevPreset: () => this.switchPreset((s.preset + this.presets.length - 1) % this.presets.length),
+      nextPreset: () => this.switchPreset((s.preset + 1) % this.presets.length),
+      abA: 'width:24px;height:24px;border-radius:4px;cursor:pointer;font-family:JetBrains Mono,monospace;font-size:9px;border:1px solid ' + (s.ab === 'a' ? accent : '#4a4d59') + ';background:' + (s.ab === 'a' ? 'rgba(145,132,217,.14)' : '#1b1d29') + ';color:' + (s.ab === 'a' ? '#d2cefd' : '#9397ab'),
+      abB: 'width:24px;height:24px;border-radius:4px;cursor:pointer;font-family:JetBrains Mono,monospace;font-size:9px;border:1px solid ' + (s.ab === 'b' ? accent : '#4a4d59') + ';background:' + (s.ab === 'b' ? 'rgba(145,132,217,.14)' : '#1b1d29') + ';color:' + (s.ab === 'b' ? '#d2cefd' : '#9397ab'),
+      pickA: () => this.switchAB('a'), pickB: () => this.switchAB('b'),
+      toggleBypass: () => this.setState(st => ({ bypass: !st.bypass }), () => this.restart()),
+      bypassLabel: s.bypass ? 'BYPASSED' : 'ACTIVE',
+      bypassStyle: 'height:24px;padding:0 9px;border-radius:4px;cursor:pointer;font-family:JetBrains Mono,monospace;font-size:8.5px;letter-spacing:.1em;white-space:nowrap;border:1px solid ' + (s.bypass ? '#4a3d1a' : '#1c3a33') + ';background:' + (s.bypass ? '#2a2413' : '#12211f') + ';color:' + (s.bypass ? '#ffd166' : '#3ddc97'),
+      hostTempo: '124.00', trackName: 'Audio 3',
+      toggleSync: () => this.setState(st => ({ sync: !st.sync })),
+      syncLabel: s.sync ? 'SYNCED' : 'FREE',
+      syncStyle: 'height:20px;padding:0 8px;border-radius:3px;cursor:pointer;font-family:JetBrains Mono,monospace;font-size:8px;letter-spacing:.1em;white-space:nowrap;border:1px solid ' + (s.sync ? accent : '#4a4d59') + ';background:' + (s.sync ? 'rgba(145,132,217,.12)' : '#1b1d29') + ';color:' + (s.sync ? '#d2cefd' : '#9397ab'),
+      statePill: "font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;padding:3px 6px;border-radius:3px;white-space:nowrap;" + (s.analyzing ? 'background:#2a2413;color:#ffd166;border:1px solid #4a3d1a;animation:bsBlink 1.1s ease-in-out infinite' : 'background:#12211f;color:#3ddc97;border:1px solid #1c3a33'),
+      stateLabel: s.analyzing ? 'ANALYSING BUFFER' : 'ANALYSIS CURRENT',
+      pendingPill,
+      noAudio: !au, hasAudio: !!au,
+      waveCursor: au ? 'text' : 'pointer',
+      bufLen: au ? au.name : 'NO BUFFER',
+      playhead: au ? fmtTime(au.duration * (s.pos / 100)) + ' / ' + fmtTime(au.duration) : '—',
+      posPct: s.pos + '%',
+      waveform: s.peaks ? this.realWave(s.peaks) : null,
+      playIcon: s.playing ? '❙❙' : '▶',
+      playStyle: 'width:20px;height:18px;border-radius:3px;border:1px solid ' + (au ? '#4a4d59' : '#33353f') + ';background:#1b1d29;color:' + (au ? '#d2cefd' : '#75798c') + ';cursor:' + (au ? 'pointer' : 'default') + ';font-family:Inter,sans-serif;font-size:8px;flex:none',
+      togglePlay: this.togglePlay,
+      seek: e => { if (!buf) return; const r = e.currentTarget.getBoundingClientRect(); this.seekTo((e.clientX - r.left) / r.width); },
+      pickFile: this.pickFile, onFileChange: this.onFileChange,
+      pickBackendFile: this.pickBackendFile, onBackendFileChange: this.separateViaBackend,
+      toggleUseReal: this.toggleUseReal,
+      backendOnline: s.backend.status === 'online',
+      backendLabel: s.backend.status === 'unknown' ? 'BACKEND —' : s.backend.status === 'offline' ? 'BACKEND OFFLINE' : (s.backend.useReal ? 'BACKEND: REAL ON' : 'BACKEND ONLINE'),
+      backendTitle: s.backend.status !== 'online' ? 'No local backend detected at ' + s.backend.url
+        : s.backend.useReal ? 'Real Demucs separation + pYIN/onset transcription is ON for backend-loaded stems — click to turn off'
+        : 'Backend detected — click to use it for stems loaded via "Auto-separate a mix"',
+      backendPillStyle: 'height:20px;padding:0 8px;border-radius:3px;cursor:' + (s.backend.status === 'online' ? 'pointer' : 'default') + ';font-family:JetBrains Mono,monospace;font-size:8px;letter-spacing:.08em;white-space:nowrap;flex:none;border:1px solid ' +
+        (s.backend.status !== 'online' ? '#33353f' : s.backend.useReal ? '#1c3a33' : '#4a4d59') + ';background:' +
+        (s.backend.status !== 'online' ? 'transparent' : s.backend.useReal ? '#12211f' : '#1b1d29') + ';color:' +
+        (s.backend.status !== 'online' ? '#75798c' : s.backend.useReal ? '#3ddc97' : '#9397ab'),
+      isBusy: !!s.busy, cancelBusy: this.cancelBusy,
+      hasErrors: s.errors.length > 0,
+      errorCards: s.errors.map(e => ({
+        stageLabel: String(e.stage || '').toUpperCase(),
+        time: e.time, message: e.message, hint: e.hint,
+        hasRetry: !!e.retry, isBackend: !!e.isBackend,
+        dismiss: () => this.dismissError(e.id),
+        retry: () => this.retryError(e),
+        copy: () => this.copyDiagnostics(e),
+        recheck: () => this.checkBackendHealth()
+      })),
+      hasStems: stemList.length > 0, noStems: stemList.length === 0,
+      stemCount: s.ingest ? (s.ingest.done + 1) + '/' + s.ingest.total : stemList.length ? stemList.length + ' loaded' : 'none',
+      clearStems: this.clearStems,
+      stemRows: stemList.map(t => {
+        const anySolo = stemList.some(x => s.solo[x.id]);
+        const audible = (anySolo ? s.solo[t.id] : true) && !s.mute[t.id];
+        const active = t.id === s.selStem;
+        return {
+          name: t.name,
+          meta: t.role.toUpperCase() + ' · ' + t.tempo.toFixed(1) + ' BPM · ' + t.key.key + ' ' + t.key.mode + ' · ' + t.lufs + ' dB' + (t.backendKind ? ' · backend' : ''),
+          role: t.role.toUpperCase(),
+          select: () => this.selectStem(t),
+          cycleRole: e => { e.stopPropagation(); const order = ['drums', 'bass', 'piano', 'guitar', 'synth', 'vocals', 'mix', 'other']; this.setRole(t.id, order[(order.indexOf(t.role) + 1) % order.length]); },
+          mute: e => { e.stopPropagation(); this.toggleMute(t.id); },
+          solo: e => { e.stopPropagation(); this.toggleSolo(t.id); },
+          row: 'display:flex;align-items:center;gap:6px;padding:6px 7px;border-radius:6px;cursor:pointer;border:1px solid ' + (active ? 'rgba(145,132,217,.45)' : '#2a2c36') + ';background:' + (active ? 'rgba(145,132,217,.08)' : '#1b1d29') + ';opacity:' + (audible ? '1' : '.5'),
+          dot: 'width:3px;height:18px;border-radius:2px;flex:none;background:' + (roleColors[t.role] || '#9397ab'),
+          rolePill: 'font-family:JetBrains Mono,monospace;font-size:7.5px;letter-spacing:.06em;padding:2px 5px;border-radius:3px;flex:none;cursor:pointer;white-space:nowrap;border:1px solid #33353f;background:#161826;color:#cfd3e5',
+          muteStyle: 'width:15px;height:15px;border-radius:3px;flex:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:JetBrains Mono,monospace;font-size:8px;border:1px solid ' + (s.mute[t.id] ? '#ffd166' : '#4a4d59') + ';color:' + (s.mute[t.id] ? '#ffd166' : '#75798c'),
+          soloStyle: 'width:15px;height:15px;border-radius:3px;flex:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:JetBrains Mono,monospace;font-size:8px;border:1px solid ' + (s.solo[t.id] ? '#3ddc97' : '#4a4d59') + ';color:' + (s.solo[t.id] ? '#3ddc97' : '#75798c')
+        };
+      }),
+      loadLabel: au ? 'Load another' : 'Load audio',
+      loadStyle: 'height:20px;padding:0 9px;border-radius:3px;cursor:' + (busyOther('load') ? 'not-allowed' : 'pointer') + ';font-family:Inter,sans-serif;font-size:10px;font-weight:600;white-space:nowrap;flex:none;border:1px solid ' + (busyOther('load') ? '#33353f' : accent) + ';background:transparent;color:' + (busyOther('load') ? '#75798c' : '#d2cefd'),
+      hostFlag: pendingPill,
+      hasSections: !!(A && A.sections && A.sections.length > 1), noSections: !(A && A.sections && A.sections.length > 1),
+      sections: (A && A.sections ? A.sections : []).map((sec, i, arr) => ({
+        label: sec.label.toUpperCase(),
+        style: 'flex:' + Math.max(3, sec.dur) + ';border-right:' + (i < arr.length - 1 ? '1px solid #2a2c36' : 'none') + ';display:flex;align-items:center;padding-left:6px;overflow:hidden',
+        labelStyle: "font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;white-space:nowrap;color:" + (/chorus/i.test(sec.label) ? '#f2379b' : '#9397ab')
+      })),
+      targetName: selStemObj ? selStemObj.role.toUpperCase() + ' · ' + selStemObj.name : 'No stem selected',
+      noteCount: selStemObj && selStemObj.notes && selStemObj.notes.length ? selStemObj.notes.length + ' NOTES · ' + selStemObj.method.toUpperCase()
+        : selStemObj && /failed/.test(selStemObj.method || '') ? 'TRANSCRIPTION FAILED' : 'NOT TRANSCRIBED',
+      hasNotes: !!(selStemObj && selStemObj.notes && selStemObj.notes.length),
+      noNotes: !(selStemObj && selStemObj.notes && selStemObj.notes.length),
+      // piano/guitar now transcribe locally too (basic-pitch, a real pretrained
+      // model — see beatshore-polyphonic-worker.js), so "no notes" here just
+      // means not-yet-run, ran-and-found-nothing, or failed, same as any stem
+      rollPill: !selStemObj ? 'NO STEM SELECTED'
+        : /failed/.test(selStemObj.method || '') ? 'TRANSCRIPTION FAILED'
+        : selStemObj.method ? 'NO NOTES DETECTED'
+        : 'NOT TRANSCRIBED YET',
+      rollNote: !selStemObj ? 'Load stems, then press Reconstruct all stems.'
+        : /failed/.test(selStemObj.method || '') ? selStemObj.method.replace('polyphonic transcription failed', 'basic-pitch failed')
+        : selStemObj.method ? 'Reconstruction ran but found no clear notes in this stem.'
+        : 'Press Reconstruct all stems to transcribe this stem into real notes.',
+      pianoRoll: selStemObj && selStemObj.notes && selStemObj.notes.length ? this.notesRoll(selStemObj.notes, roleColors[selStemObj.role] || accent, au ? au.duration : 1) : null,
+      keyboard: this.keys(),
+      noChords: !(A && A.chords && A.chords.length),
+      chords: (A && A.chords ? A.chords : []).slice(0, 14).map(c => c.label),
+      modes: ['original', 'recreate', 'hybrid'].map(m => ({
+        label: modeMeta[m][0], pick: () => this.setState({ mode: m }, () => this.restart()),
+        style: 'flex:1;text-align:center;font-size:10.5px;font-weight:600;padding:6px 0;border-radius:5px;cursor:pointer;border:1px solid ' + (s.mode === m ? accent : '#33353f') + ';background:' + (s.mode === m ? 'rgba(145,132,217,.12)' : '#1b1d29') + ';color:' + (s.mode === m ? '#d2cefd' : '#9397ab')
+      })),
+      modeDesc: modeMeta[s.mode][1],
+      hasHum: !!(selStemObj && selStemObj.hum), noHum: !(selStemObj && selStemObj.hum),
+      humCells: selStemObj && selStemObj.hum ? [
+        { label: 'TIMING DEV', val: selStemObj.hum.timingDevMs + ' ms' },
+        { label: 'SPREAD', val: selStemObj.hum.timingSpreadMs + ' ms' },
+        { label: 'VELOCITY', val: selStemObj.hum.velMin + '–' + selStemObj.hum.velMax },
+        { label: 'SWING', val: selStemObj.hum.swingPct + '%' }
+      ] : [],
+      // Honest method labeling (plan section 4): autocorrelation/Krumhansl-
+      // Schmuckler are real DSP measurements, not fake — but they're not ML
+      // either, and shouldn't be labeled as if they were "verified." No
+      // numeric confidence is fabricated here since the DSP doesn't produce
+      // one; the polyphonic transcription elsewhere is the one place that
+      // legitimately says "ML" (see method text on transcribed stems).
+      confVal: A ? 'DSP ESTIMATE' : '—',
+      confPill: "font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;padding:2px 6px;border-radius:3px;white-space:nowrap;" + (A ? 'background:#1c1e2b;color:#9184d9;border:1px solid #3a3560' : 'background:#1c1e2b;color:#75798c;border:1px solid #3f424d'),
+      detTempo: A ? A.tempo.toFixed(2) : '—',
+      detKey: A ? (A.key + ' ' + A.mode) : '—',
+      detLen: au ? fmtTime(au.duration) : '—',
+      detRate: au ? ((au.sampleRate / 1000).toFixed(1) + ' kHz · ' + (au.channels > 1 ? 'st' : 'mono')) : '—',
+      analyze: this.reconstruct,
+      analyzeLabel: s.analyzing ? (s.ingest ? 'Reconstructing ' + (s.ingest.done + 1) + '/' + s.ingest.total : 'Working…') : stemList.length ? 'Reconstruct all stems' : 'Load stems first',
+      analyzeStyle: 'font-family:Inter,sans-serif;font-size:11.5px;font-weight:600;padding:9px 12px;border-radius:6px;cursor:' + (s.analyzing || busyOther('reconstruct') ? 'not-allowed' : 'pointer') + ';letter-spacing:-0.01em;border:1px solid ' + (busyOther('reconstruct') ? '#33353f' : accent) + ';background:' + (s.analyzing ? '#232532' : 'transparent') + ';color:' + (s.analyzing || busyOther('reconstruct') ? '#9397ab' : '#d2cefd'),
+      dragMidi: e => {
+        if (!e.dataTransfer) return;
+        const key = selStemObj ? selStemObj.id + ':' + (selStemObj.notes ? selStemObj.notes.length : 0) : null;
+        if (this._dragMidiUrl && key && this._dragMidiKey === key) {
+          // Chromium's real OS-level file drag-out convention (mimetype:filename:url) — the
+          // browser fetches the blob URL at drop time, so it must already exist before
+          // dragstart, which _refreshDragMidi() takes care of ahead of time.
+          e.dataTransfer.setData('DownloadURL', 'audio/midi:' + this._dragMidiFilename + ':' + this._dragMidiUrl);
+        }
+        e.dataTransfer.setData('text/plain', 'beatshore-' + (selStemObj ? selStemObj.role : 'session') + '.mid');
+        e.dataTransfer.effectAllowed = 'copy';
+      },
+      downloadMidi: () => {
+        if (!this._dragMidiUrl) return;
+        const a = document.createElement('a');
+        a.href = this._dragMidiUrl; a.download = this._dragMidiFilename || 'beatshore.mid';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      },
+      dragMidiReady: !!(this._dragMidiUrl && selStemObj && this._dragMidiKey === (selStemObj.id + ':' + (selStemObj.notes ? selStemObj.notes.length : 0))),
+      // Chromium's DownloadURL trick has no Firefox/Safari equivalent — a
+      // normal web page cannot make a universal OS file drag-out (plan
+      // section 5). Rather than show a drag handle that silently does
+      // nothing there, non-Chromium browsers get a real click-to-download
+      // control instead.
+      dragUsesNativeDrag: this.supportsDragDownload(),
+      dragUsesDownload: !this.supportsDragDownload(),
+      downloadZoneStyle: 'border:1px dashed #4a4d59;border-radius:6px;padding:8px;display:flex;align-items:center;gap:7px;background:#1b1d29;cursor:' + (this._dragMidiUrl ? 'pointer' : 'default'),
+      dragMidiHint: selStemObj && selStemObj.notes && selStemObj.notes.length
+        ? (this._dragMidiUrl
+            ? (this.supportsDragDownload() ? 'Drag MIDI to a host track' : 'Download MIDI (this browser can’t drag files to other apps)')
+            : 'Preparing MIDI file…')
+        : (this.supportsDragDownload() ? 'Reconstruct this stem to enable drag-out' : 'Reconstruct this stem to enable download'),
+
+
+      onEditor: s.view === 'editor', onExport: s.view === 'export',
+      goEditor: () => this.setState({ view: 'editor' }), goExport: () => this.setState({ view: 'export' }),
+      vwEditor: vwStyle('editor'), vwExport: vwStyle('export'),
+
+      treeRows, treeSummary,
+      chainName: chain.name,
+      srcModes: [['stem', 'Stem'], ['midi', 'Reconstruction'], ['both', 'Both']].map(([m, label]) => ({
+        label, pick: () => {},
+        style: 'flex:1;text-align:center;font-size:10.5px;font-weight:600;padding:6px 0;border-radius:5px;cursor:not-allowed;opacity:.45;border:1px solid #33353f;background:#1b1d29;color:#75798c'
+      })),
+      srcDesc: 'Disabled — A/B needs a separated stem and an assigned instrument. Neither exists until the models run.',
+      chainNote: chainStem && chainStem.timbre
+        ? 'Measured from the real stem. Plugin and preset matching still needs the backend — these are descriptors, not a named patch.'
+        : 'Load a stem with this role and run Reconstruct all stems to measure it.',
+      chainNodes: (chainStem && chainStem.timbre ? [
+        { kicker: 'MIDI', label: chainStem.notes ? chainStem.notes.length + ' notes' : 'not transcribed', set: !!chainStem.notes },
+        { kicker: 'CENTROID', label: chainStem.timbre.centroid + ' Hz', set: true },
+        { kicker: 'ROLLOFF 85', label: chainStem.timbre.rolloff + ' Hz', set: true },
+        { kicker: 'FLATNESS', label: String(chainStem.timbre.flatness), set: true },
+        { kicker: 'ATTACK', label: chainStem.timbre.attackMs + ' ms', set: true },
+        { kicker: 'PRESET', label: 'Needs backend' }
+      ] : [{ kicker: 'MIDI', label: chain.name + ' MIDI', set: true }, { kicker: 'INSTRUMENT', label: 'Empty slot' }, { kicker: 'PRESET', label: 'Empty slot' }, { kicker: 'FX', label: 'Empty chain' }]).map(n => ({
+        kicker: n.kicker, label: n.label,
+        labelStyle: 'font-size:10.5px;white-space:nowrap;color:' + (n.set ? '#e9e9ed' : '#75798c'),
+        kickerStyle: "font-family:'JetBrains Mono',monospace;font-size:7.5px;letter-spacing:.1em;white-space:nowrap;color:" + (n.kicker === 'FX' ? '#75798c' : accent),
+        card: 'display:flex;flex-direction:column;gap:3px;padding:7px 9px;border-radius:6px;min-width:0;border:1px solid ' + (n.kicker === 'FX' ? '#2a2c36' : 'rgba(145,132,217,.4)') + ';background:' + (n.kicker === 'FX' ? '#1b1d29' : 'rgba(145,132,217,.07)')
+      })),
+      mixerCells: [{ label: 'GAIN', val: '—' }, { label: 'PAN', val: '—' }, { label: 'SENDS', val: '—' }, { label: 'LANES', val: '0' }].map(c => ({ label: c.label, val: c.val, valStyle: dim })),
+      targetChips: dawDefs.map(d => {
+        const sel = !!s.selDaws[d.id];
+        return {
+          label: d.name, toggle: () => this.setState(st => ({ selDaws: Object.assign({}, st.selDaws, { [d.id]: !st.selDaws[d.id] }) })),
+          style: 'font-size:9.5px;padding:3px 8px;border-radius:20px;cursor:pointer;white-space:nowrap;border:1px solid ' + (sel ? accent : '#33353f') + ';background:' + (sel ? 'rgba(145,132,217,.1)' : '#1b1d29') + ';color:' + (sel ? '#d2cefd' : '#9397ab')
+        };
+      }),
+      queueLine: s.queue.msg || (nSel ? 'Ready — 6 stems · 5 MIDI + instrument chains → ' + nSel + ' target' + (nSel > 1 ? 's' : '') : 'No target selected'),
+      queueBar: 'height:3px;border-radius:2px;background:' + (s.queue.pct >= 100 ? '#3ddc97' : accent) + ';width:' + Math.min(100, s.queue.pct) + '%',
+      runExport: this.runRealExport,
+      exportBtnLabel: s.queue.running ? 'Writing…' : s.queue.pct >= 100 ? 'Done — export again' : 'Export sessions',
+      exportBtnStyle: 'font-family:Inter,sans-serif;font-size:11.5px;font-weight:600;padding:9px 13px;border-radius:6px;cursor:' + (s.queue.running || busyOther('export') ? 'not-allowed' : 'pointer') + ';letter-spacing:-0.01em;white-space:nowrap;flex:none;border:1px solid ' + (busyOther('export') ? '#33353f' : s.queue.pct >= 100 && !s.queue.running ? '#1c3a33' : accent) + ';background:' + (s.queue.running ? '#232532' : s.queue.pct >= 100 ? '#12211f' : 'transparent') + ';color:' + (busyOther('export') ? '#75798c' : s.queue.running ? '#9397ab' : s.queue.pct >= 100 ? '#3ddc97' : '#d2cefd')
+    };
+  }
+}
+</script>
+</body>
+</html>

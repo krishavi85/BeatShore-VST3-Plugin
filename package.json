@@ -1,0 +1,6 @@
+{
+  "name": "beatshore-vst3-plugin-window",
+  "private": true,
+  "type": "module",
+  "description": "Not a build target for the browser files (they're plain <script>-loaded, no bundler) — this only exists so Node correctly resolves beatshore-dsp.js as an ES module when native/BeatShoreDesktop/engine/analyze.js imports it as a child process."
+}

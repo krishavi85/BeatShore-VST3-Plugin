@@ -174,10 +174,32 @@ function Write-Step($name) {
     Write-Host "=== $name ===" -ForegroundColor Cyan
 }
 
-function Invoke-NinjaBuild($buildDir, $label) {
+function Invoke-NinjaBuild($sourceDir, $buildDir, $label) {
     Write-Step "Building $label ($buildDir)"
+
+    # CMake-configure first, unconditionally -- this is a real fix, not
+    # defensive padding. Every prior version of this script assumed
+    # $buildDir already existed and was already configured (true on the
+    # machine this script was originally developed on, where every build
+    # directory had been configured interactively long before this
+    # script existed) and just ran `ninja` directly. On a genuinely
+    # fresh checkout -- exactly what a CI runner does -- $buildDir
+    # doesn't exist at all (it's gitignored, see the repo root
+    # .gitignore's own comment), so `ninja` alone fails immediately
+    # ("loading 'build.ninja': ... No such file or directory"). `cmake
+    # -B` is idempotent and fast when a build directory is already
+    # correctly configured, so running it unconditionally doesn't cost
+    # anything on a machine where it's already set up -- it only matters
+    # on a fresh one, which is exactly the case that was untested before
+    # a real CI run surfaced it.
+    if (-not (Test-Path $buildDir)) { New-Item -ItemType Directory -Path $buildDir -Force | Out-Null }
     Push-Location $buildDir
     try {
+        $configureCmdLine = '"' + $vcvars + '" && cmake -S "' + $sourceDir + '" -B "' + $buildDir + '" -G Ninja -DCMAKE_BUILD_TYPE=Release'
+        $configureOutput = cmd /c $configureCmdLine 2>&1
+        $configureOutput | ForEach-Object { Write-Host $_ }
+        if ($LASTEXITCODE -ne 0) { throw "$label CMake configure failed (exit $LASTEXITCODE)" }
+
         $cmdLine = '"' + $vcvars + '" && ninja'
         $output = cmd /c $cmdLine 2>&1
         $output | ForEach-Object { Write-Host $_ }
@@ -211,8 +233,45 @@ function Sign-IfConfigured($path, $label) {
 }
 
 # --- 1. Rebuild both native binaries from source -----------------------
-Invoke-NinjaBuild (Join-Path $native "BeatShoreDesktop\build") "BeatShoreDesktop"
-Invoke-NinjaBuild (Join-Path $native "BeatShoreBridge\build") "BeatShoreBridge"
+Invoke-NinjaBuild (Join-Path $native "BeatShoreDesktop") (Join-Path $native "BeatShoreDesktop\build") "BeatShoreDesktop"
+Invoke-NinjaBuild (Join-Path $native "BeatShoreBridge") (Join-Path $native "BeatShoreBridge\build") "BeatShoreBridge"
+
+# The VST3 Validator and the BridgeClientTest/MultiSessionTest/
+# SchedulerTest suite were, until this fix, assumed to already be built
+# -- true on the machine this script was developed on (both had been
+# built interactively long before this script existed) but never
+# actually true on a fresh checkout, which is exactly what surfaced this
+# on a real CI run: `native/vst3sdk/build` and
+# `native/BridgeClientTest/build` don't exist at all until something
+# configures and builds them. Real CMake flags, not guessed -- read
+# directly from this machine's own already-configured
+# native/vst3sdk/build/CMakeCache.txt (SMTG_ADD_VST3_UTILITIES=ON is
+# what actually produces validator.exe; hosting/plugin examples and
+# VSTGUI support are explicitly OFF, keeping this build to just what's
+# needed rather than pulling in a much larger default configuration).
+Write-Step "Configuring and building the VST3 SDK Validator"
+$vst3sdkBuild = Join-Path $native "vst3sdk\build"
+if (-not (Test-Path $vst3sdkBuild)) { New-Item -ItemType Directory -Path $vst3sdkBuild -Force | Out-Null }
+Push-Location $vst3sdkBuild
+try {
+    $vst3sdkConfigureCmd = '"' + $vcvars + '" && cmake -S "' + (Join-Path $native "vst3sdk") + '" -B "' + $vst3sdkBuild + '" -G Ninja -DCMAKE_BUILD_TYPE=Release -DSMTG_ADD_VST3_UTILITIES=ON -DSMTG_ENABLE_VST3_HOSTING_EXAMPLES=OFF -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF -DSMTG_RUN_VST_VALIDATOR=ON'
+    $vst3sdkConfigureOut = cmd /c $vst3sdkConfigureCmd 2>&1
+    $vst3sdkConfigureOut | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw "vst3sdk CMake configure failed (exit $LASTEXITCODE)" }
+    $vst3sdkBuildCmd = '"' + $vcvars + '" && ninja validator'
+    $vst3sdkBuildOut = cmd /c $vst3sdkBuildCmd 2>&1
+    $vst3sdkBuildOut | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw "vst3sdk validator build failed (ninja exit $LASTEXITCODE)" }
+    $report.steps["build_validator"] = @{ status = "ok" }
+}
+finally { Pop-Location }
+
+# BridgeClientTest.exe/MultiSessionTest.exe -- needed by the staged
+# regression suite below -- and SchedulerTest.exe/LoadBoundaryTest.exe,
+# which this script doesn't currently run itself but which real
+# developers rely on existing after a build. `ninja` alone (no target
+# name) builds every target this CMakeLists.txt defines.
+Invoke-NinjaBuild (Join-Path $native "BridgeClientTest") (Join-Path $native "BridgeClientTest\build") "BridgeClientTest"
 
 $desktopExeSrc = Join-Path $native "BeatShoreDesktop\build\BeatShoreDesktop.exe"
 $vst3Src = Join-Path $native "BeatShoreBridge\build\BeatShoreBridge_artefacts\Release\VST3\BeatShore Bridge.vst3"

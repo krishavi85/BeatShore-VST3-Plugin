@@ -164,6 +164,14 @@ Real and verified, as of the most recent work in this document:
   test client finally built" below for the honest account, including a
   real bug found and fixed in the new test tool itself (not the
   desktop) along the way.
+- **`v0.2.0-rc4`**: real publisher/copyright (product website/support/
+  privacy-policy URLs still placeholders), a real
+  `ProductVersionRaw`-stuck-at-`0.2.0.1` bug found and fixed, rebuilt and
+  fully re-verified (Validator 47/47, full regression suite), tagged and
+  pushed. Windows Sandbox checked and ruled out as a clean-machine-test
+  workaround (no elevation, likely already-nested virtualization). See
+  "Eleventh: real publisher/copyright, a real ProductVersion bug fix,
+  and v0.2.0-rc4" below.
 
 See section 4 ("Test evidence") for the specific numbers behind each of
 these, and section 5 for the full engineering narrative.
@@ -1982,6 +1990,69 @@ because concluding "desktop bug" and being wrong would have been a real
 mistake to publish, and the discipline that caught it (verify against a
 smaller, fully-traceable repro before concluding) is worth keeping
 visible, not just the eventual right answer.
+
+### Eleventh: real publisher/copyright, a real ProductVersion bug fix, and v0.2.0-rc4
+
+**Windows Sandbox checked and ruled out as a clean-machine-test
+workaround.** A follow-up review suggested it as a lighter-weight
+alternative to a full VM. Checked directly: this session has no
+elevation rights (`Get-WindowsOptionalFeature` itself requires admin),
+and `systeminfo` reports "a hypervisor has been detected" — meaning this
+environment is very likely already running inside virtualization itself,
+which would make nested Windows Sandbox unreliable even if it could be
+enabled. Sandbox also needs interactive GUI access this CLI session
+doesn't have regardless. Genuinely ruled out, not just left unattempted.
+
+**Real publisher and copyright**, supplied directly by the project owner
+(Singh's Innovation & Advisory, matching the EULA's own licensor) --
+`AppPublisher`/`AppCopyright` in `[Setup]`, plus `VersionInfoCompany`/
+`VersionInfoCopyright` for the compiled exe's own Properties -> Details
+tab (previously unset, defaulting to Inno Setup's own blank/generic
+values). Product website, support email/URL, and a privacy-policy URL
+remain explicit placeholders -- real, live addresses needed, not
+invented here.
+
+**A real, latent bug found and fixed while touching this same area**:
+`VersionInfoVersion={#MyAppVersion}.1` hardcoded a literal `.1` as the
+4th numeric version component regardless of `MyBuildId`'s actual value,
+despite the script's own comment directly above it claiming "the
+build-id sequence number becomes the 4th component." Every compile
+across this entire project's history showed an identical
+`ProductVersionRaw` (`0.2.0.1`) no matter how many times `MyBuildId` was
+bumped -- the comment's claim was simply false, silently, since nothing
+ever checked it. Fixed with a new, separate `MyBuildNumber` define
+(Windows version-resource components are 16-bit, so `MyBuildId`'s own
+`YYYYMMDD`-based text can't be used directly as the numeric component).
+Verified by actually checking `(Get-Item
+...).VersionInfo.ProductVersionRaw` across two consecutive builds and
+confirming it genuinely changed (`0.2.0.1` -> `0.2.0.4`), not just that
+the script compiled without error -- the same discipline this project
+has applied throughout: a fix isn't verified until its actual effect is
+observed, not just that the code ran.
+
+**`v0.2.0-rc4` built and tagged**: `build-release.ps1` (fast path --
+the engine tree was already freshly clean-staged one build earlier in
+this same session, so `-CleanEngine` wasn't needed again) rebuilt from
+this commit's tree. Validator 47/47, the full regression suite
+(self-test, tempo, `transcribePolyphonic`, `MultiSessionTest`) all
+passed, zero installer warnings. `BeatShoreDesktop.exe`, the VST3, and
+the staging-manifest hash are all byte-identical to the immediately
+prior build (only `BeatShoreSetup.iss` itself changed, and it isn't part
+of the staged tree being hashed) -- only the installer's own hash and
+its now-genuinely-distinct `ProductVersionRaw` changed. Committed
+(`b78d31e`), tagged `v0.2.0-rc4`, pushed. `RELEASE_MANIFEST.md` and
+`RELEASE_STATUS.md` updated with this build's real numbers, including
+the real source-commit hash (a two-commit sequence -- code first, then a
+follow-up commit updating the manifest to reference that exact hash --
+since a commit can't literally contain its own resulting hash).
+
+**Still explicitly not attempted, and not attemptable from here**:
+enabling GitHub Actions on the account (a GitHub UI action only the
+repo owner can take -- flagged clearly to the user, not guessed at
+further); live REAPER transcription and lifecycle testing; a
+clean-machine install (Windows Sandbox now ruled out too, see above);
+code signing; human legal review; the `kMaxGlobalQueueDepth`/512MB
+rejection boundaries under real load (see "Tenth..." above).
 
 ### Second round: real blockers found by external review, fixed for real
 

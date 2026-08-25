@@ -39,9 +39,20 @@ Last updated 2026-08-25.
 - A real, brand-derived icon (not the generic Windows default), embedded
   in `BeatShoreDesktop.exe` (taskbar, tray, Explorer) and the installer,
   verified by extracting it back out of both compiled binaries.
+- **Real publisher and copyright** (Singh's Innovation & Advisory,
+  matching the EULA's own licensor) in the installer, replacing
+  placeholders — product website, support email/URL, and a
+  privacy-policy URL are still placeholders (real, live addresses
+  needed, not invented here). Fixing this surfaced and fixed a real,
+  separate bug: the installer's own `ProductVersionRaw` had been stuck
+  at `0.2.0.1` on every build regardless of the actual build ID, despite
+  the source's own comment claiming otherwise — confirmed via
+  `(Get-Item ...).VersionInfo.ProductVersionRaw` actually changing across
+  two builds after the fix (`0.2.0.1` → `0.2.0.4`), not just compiling
+  without error.
 - Under real version control (`git`), pushed to
   [github.com/krishavi85/BeatShore-VST3-Plugin](https://github.com/krishavi85/BeatShore-VST3-Plugin)
-  for the first time, tagged (`v0.2.0-rc1` through `v0.2.0-rc3`). Both of
+  for the first time, tagged (`v0.2.0-rc1` through `v0.2.0-rc4`). Both of
   the CI workflow's original TODOs are now filled in (JUCE/VST3 SDK
   fetch pinned to the exact vendored commits; `build-release.ps1`
   auto-detects its build tools instead of hardcoding a local path,
@@ -87,8 +98,10 @@ Last updated 2026-08-25.
 - **JUCE 9 terms and the BeatShore EULA have not had a human/legal
   review.** The EULA has real, filled-in content (not a placeholder) but
   says explicitly it hasn't been attorney-reviewed.
-- **Placeholder publisher/support/product URLs and copyright line** in
-  the installer script — real business decisions, not filled in here.
+- **Placeholder product website, support email/URL, and privacy-policy
+  URL** in the installer script — publisher name and copyright are now
+  real (see above); these three still need genuinely live addresses,
+  not invented here.
 - **Only Analyze Tempo has been observed live inside REAPER.**
   `transcribePolyphonic`'s live-captured round trip, REAPER project
   save/reload, and reconnect-after-desktop-restart are all unobserved in
@@ -130,18 +143,18 @@ Last updated 2026-08-25.
 
 ## Exact artifact version and hashes
 
-Current build, produced by `native/installer/build-release.ps1 -CleanEngine`,
-full detail (including per-file staging hashes and the machine-readable
+Current build, produced by `native/installer/build-release.ps1`, full
+detail (including per-file staging hashes and the machine-readable
 report) in `RELEASE_MANIFEST.md`:
 
 | Field | Value |
 |---|---|
 | Version | 0.2.0 |
-| Build ID | 20260824.1 |
-| Source commit | `8e2fbf7` (tag `v0.2.0-rc2`) — the artifacts below were built from this exact commit and have **not** been rebuilt since; `main` has since moved on to `v0.2.0-rc3` (CI fixes, the new load-boundary test tool) but those changes don't touch the desktop/VST3/installer source, so rebuilding would be expected to reproduce identical binaries, not confirmed by an actual rebuild |
+| Build ID | 20260825.1 (ProductVersion 0.2.0.4) |
+| Source commit | `b78d31e` (tag `v0.2.0-rc4`) |
 | Installer filename | `BeatShoreSetup-0.2.0.exe` |
-| Installer SHA-256 | `d10064b24588ce65bbddb536015238dcc21d66817559729622f00f2602afc335` |
-| Installer size | 98,838,285 bytes (~94.3MB) |
+| Installer SHA-256 | `83c5d6aebe19772f4d98f94d0c2d14e7714de4bf3867d6924845f609403d1a3d` |
+| Installer size | 98,838,475 bytes (~94.3MB) |
 | `BeatShoreDesktop.exe` SHA-256 | `6da67873ef53af7efc05efe480926ab2a0cddead4fcb1f0f72a9476f9a8a7691` |
 | `BeatShore Bridge.vst3` SHA-256 | `28ca81e6efc1804044cd9d5c1572768c56052d3488f6f1098c5cae665ae153f7` |
 | Code-signed | No |
@@ -230,8 +243,9 @@ they need real hardware, a certificate, or a human.
       oversized/malformed messages, missing/corrupted model files, and
       unwritable MIDI destination are already tested — see "Current
       verified capabilities"
-- [ ] Placeholder publisher/support/product URLs and copyright replaced
-      with real values
+- [x] Publisher name and copyright replaced with real values — done
+- [ ] Product website, support email/URL, and privacy-policy URL
+      replaced with real, live addresses
 - [ ] Other Windows DAWs tested (Cubase, Ableton Live, FL Studio, Studio
       One)
 - [ ] CI workflow verified on a real GitHub Actions runner (both TODOs

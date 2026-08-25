@@ -90,12 +90,12 @@ the next real release rather than trusting this note.)
 |---|---|
 | Filename | `BeatShoreSetup-0.2.0.exe` |
 | Version | `0.2.0` (`AppVersion`/`MyAppVersion` -- the release this build belongs to) |
-| Build ID | `20260824.1` (`MyBuildId` in `BeatShoreSetup.iss`, embedded in the compiled exe's own version resource as `VersionInfoVersion=0.2.0.1` and the string field `VersionInfoTextVersion="build 20260824.1"` -- confirmed present via `(Get-Item ...).VersionInfo.FileVersionRaw` = `0.2.0.1` after compiling. Distinct from Version above because more than one compile can share the same release version, as happened today.) |
-| Size | 98,838,285 bytes (~94.3MB) |
-| SHA-256 | `d10064b24588ce65bbddb536015238dcc21d66817559729622f00f2602afc335` |
-| Compilation time | 2026-08-25T04:18:42Z (Inno Setup 6.7.3, zero warnings) |
-| Source commit | `8e2fbf7` (`v0.2.0-rc2`) -- this project is now a real git repository (`git init` + an initial commit `782654f`/`v0.2.0-rc1`, followed by `8e2fbf7`/`v0.2.0-rc2` adding the real icon). This build was produced from `8e2fbf7`'s tree via `build-release.ps1 -CleanEngine`. Verify with `git log --oneline --decorate` or `git show 8e2fbf7 --stat`. |
-| Staging-manifest hash | `2e922e4e651061fa81181c4de78ac541b51c850b5a923b892386050653d315d6` -- SHA-256 over every staged file's own SHA-256, sorted by path relative to `stage\`, joined `"<sha256>  <relpath>"` one per line (forward slashes, UTF-8, `\n`-joined) and hashed once more into this single value -- the exact algorithm is `build-release.ps1`'s own staging-manifest step, so this number is reproducible by that specific, documented procedure, not "however sha256sum happens to format its output" (see the prior build's note in this file's history for why a naive `sha256sum`/`sort` pipeline produces a *different* aggregate value over the *same* underlying files). The full per-file listing is saved alongside this manifest at `native/installer/staging-file-hashes.txt`. Staged file count: 8,479 -- identical to the non-`-CleanEngine` build immediately before this one, confirming the `tfjs-node` trim is reproducible from a from-scratch `npm ci`, not something that happened to work once. |
+| Build ID | `20260825.1` (`MyBuildId` in `BeatShoreSetup.iss`) — `VersionInfoTextVersion="build 20260825.1"`. **A real bug in this same field was found and fixed this build**: `VersionInfoVersion`'s 4th numeric component was hardcoded to a literal `.1` regardless of `MyBuildId`'s actual value, despite this file's own then-comment claiming "the build-id sequence number becomes the 4th component" — every prior compile showed an identical `ProductVersionRaw` (`0.2.0.1`) no matter how many times `MyBuildId` was bumped, silently failing to be the discriminator the comment claimed. Fixed with a new, separate `MyBuildNumber` define (`"4"` for this build — Windows version-resource components are 16-bit, so `MyBuildId`'s own `YYYYMMDD`-based text can't be used directly). Confirmed working, not just compiling without error: `(Get-Item ...).VersionInfo.ProductVersionRaw` now reads `0.2.0.4`. |
+| Size | 98,838,475 bytes (~94.3MB) |
+| SHA-256 | `83c5d6aebe19772f4d98f94d0c2d14e7714de4bf3867d6924845f609403d1a3d` |
+| Compilation time | 2026-08-25T17:21:45Z (Inno Setup 6.7.3, zero warnings) |
+| Source commit | `b78d31e` (`v0.2.0-rc4`) -- real publisher/copyright, the `VersionInfoVersion` fix, and the load-boundary test tooling (`v0.2.0-rc3`, `2f3ef67`) are all part of this build's tree. Supersedes `8e2fbf7`/`v0.2.0-rc2`. Verify with `git log --oneline --decorate` or `git show b78d31e --stat`. |
+| Staging-manifest hash | `2e922e4e651061fa81181c4de78ac541b51c850b5a923b892386050653d315d6` -- SHA-256 over every staged file's own SHA-256, sorted by path relative to `stage\`, joined `"<sha256>  <relpath>"` one per line (forward slashes, UTF-8, `\n`-joined) and hashed once more into this single value -- the exact algorithm is `build-release.ps1`'s own staging-manifest step, so this number is reproducible by that specific, documented procedure, not "however sha256sum happens to format its output" (see the prior build's note in this file's history for why a naive `sha256sum`/`sort` pipeline produces a *different* aggregate value over the *same* underlying files). The full per-file listing is saved alongside this manifest at `native/installer/staging-file-hashes.txt`. Staged file count: 8,479 -- unchanged across every build since the `-CleanEngine` run two builds ago, confirming the `tfjs-node` trim is genuinely reproducible, not something that happened to work once. |
 
 **Not code-signed** -- no signing certificate available in this
 environment; hashes above are of an **unsigned** binary. Per the standing
@@ -264,6 +264,18 @@ then exercised end-to-end via:
   restored immediately after -- self-test again isolates the failure
   correctly, exits 1). Neither test found a bug; both are real,
   executed verification, not assumed from the code.
+- **`v0.2.0-rc4` (`b78d31e`)**: real publisher/copyright filled in, the
+  `VersionInfoVersion` build-discriminator bug fixed (see the table
+  above), rebuilt via `build-release.ps1` (not `-CleanEngine` this time
+  -- the engine tree was already freshly clean-staged one build earlier
+  in this same session and nothing engine-related changed since).
+  Validator 47/47, full regression suite (`self-test`, `tempo`,
+  `transcribePolyphonic`, `MultiSessionTest`) all passed, zero installer
+  warnings. `BeatShoreDesktop.exe`/the VST3/the staging-manifest hash are
+  all byte-identical to the prior build (only the `.iss` script itself
+  changed, and it isn't part of the staged tree being hashed) -- the
+  installer's own hash and `ProductVersionRaw` (now genuinely `0.2.0.4`,
+  not the previously-stuck `0.2.0.1`) are the only things that changed.
 
 Regenerate this manifest -- and re-run the same verification -- for every
 build before it ships. Do not hand-edit hashes; recompute them

@@ -117,8 +117,10 @@
 ;      generated for this draft; do not regenerate it, do not use a
 ;      different one between versions, or Inno Setup will treat every
 ;      release as a fresh, unrelated product instead of an upgrade), and
-;      real publisher/URL/copyright values (still placeholders below --
-;      business decisions, not filled in here).
+;      real publisher/copyright values (see #define MyAppPublisher/
+;      MyAppCopyright below -- resolved). Product website, support
+;      email/URL, and a privacy-policy URL are still placeholders --
+;      need genuinely live addresses, not invented here.
 ;   6. A release manifest recording SHA-256 hashes of every staged binary
 ;      artifact and the exact tool versions used (Node version, this
 ;      script's own version) -- see native/installer/RELEASE_MANIFEST.md
@@ -127,12 +129,16 @@
 
 #define MyAppName "BeatShore"
 #define MyAppVersion "0.2.0"
-; Still placeholders -- real business decisions (final publisher name,
-; support/product URLs, copyright line, versioning policy, upgrade
-; compatibility policy), not something to invent on this script's behalf.
-; Fill these in before compiling a public build; AppId below is the one
-; exception already resolved (see its own comment).
-#define MyAppPublisher "BeatShore"
+; Publisher and copyright: real values, supplied directly by the project
+; owner (matching the licensor already named in the EULA,
+; stage\LicenseFile.txt) -- not placeholders, not invented here.
+#define MyAppPublisher "Singh's Innovation & Advisory"
+#define MyAppCopyright "Copyright (C) 2026 Singh's Innovation & Advisory."
+; Still placeholders -- product website, support email, support URL, and
+; a privacy-policy URL are real business decisions this script can't
+; invent; they need to be genuinely live addresses before a public
+; release, not filled in with a plausible-looking guess. AppId below is
+; the one exception already resolved (see its own comment).
 #define MyAppURL "https://example.invalid/beatshore"
 ; Fixed, permanent, generated once for this project (2026-08-24) -- do
 ; NOT regenerate this or Inno Setup will treat every future version as an
@@ -142,14 +148,28 @@
 ; A build identifier distinct from MyAppVersion -- MyAppVersion (0.2.0)
 ; names the release; this names the specific compile of it, since more
 ; than one compile can share the same MyAppVersion (as this one does --
-; a rebuild after security hardening, still 0.2.0). Bump the numeric
-; suffix by hand for each real rebuild; this is a manual build process
-; today, not a CI pipeline that could generate it automatically.
-; Embedded into the compiled Setup.exe's own version info below (visible
-; via right-click -> Properties -> Details) and recorded alongside its
-; SHA-256 in RELEASE_MANIFEST.md -- so "which exact binary is this"
-; doesn't depend on trusting a filename or an external record alone.
-#define MyBuildId "20260824.1"
+; several rebuilds since, still 0.2.0). Bump both by hand for each real
+; rebuild; this is a manual build process today, not a CI pipeline that
+; could generate it automatically. Embedded into the compiled Setup.exe's
+; own version info below (visible via right-click -> Properties ->
+; Details) and recorded alongside its SHA-256 in RELEASE_MANIFEST.md --
+; so "which exact binary is this" doesn't depend on trusting a filename
+; or an external record alone.
+#define MyBuildId "20260825.1"
+; A SEPARATE small integer, not derived from MyBuildId above -- Windows
+; version-resource components are 16-bit (max 65535), so MyBuildId's own
+; YYYYMMDD-based portion can't be used directly as a numeric component.
+; This is what VersionInfoVersion's 4th component below actually uses.
+; A previous version of this file's own comment claimed "the build-id
+; sequence number becomes the 4th component" while the code directly
+; below it just hardcoded a literal ".1" regardless of MyBuildId's actual
+; value -- every compile showed an identical FileVersionRaw/
+; ProductVersionRaw (0.2.0.1) no matter how many times MyBuildId was
+; bumped, silently failing to be "the load-bearing, programmatically-
+; queryable build discriminator" that same comment claimed it was. Fixed
+; by actually deriving VersionInfoVersion's 4th component from this
+; value. Bump this alongside MyBuildId for each real rebuild.
+#define MyBuildNumber "4"
 
 [Setup]
 AppId={#MyAppId}
@@ -157,6 +177,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
+AppCopyright={#MyAppCopyright}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
@@ -178,11 +199,15 @@ PrivilegesRequired=admin
 ; especially if distribution scope, pricing, or data handling changes.
 LicenseFile=stage\LicenseFile.txt
 OutputBaseFilename=BeatShoreSetup-{#MyAppVersion}
-; VersionInfoVersion must be strict numeric X.X.X.X -- the build-id
-; sequence number becomes the 4th component, so the compiled exe's own
-; Properties -> Details -> Product version genuinely distinguishes this
-; compile from any other sharing the same MyAppVersion.
-VersionInfoVersion={#MyAppVersion}.1
+; VersionInfoVersion must be strict numeric X.X.X.X -- MyBuildNumber
+; becomes the 4th component (see its own comment above for why not
+; MyBuildId directly), so the compiled exe's own Properties -> Details ->
+; Product version genuinely distinguishes this compile from any other
+; sharing the same MyAppVersion -- confirmed by actually checking
+; (Get-Item ...).VersionInfo.ProductVersionRaw across two different
+; MyBuildNumber values and seeing it actually change, not just compiling
+; without error.
+VersionInfoVersion={#MyAppVersion}.{#MyBuildNumber}
 ; Short, deliberately -- VersionInfoTextVersion silently truncated a
 ; longer "0.2.0 (build 20260824.1)" string at 21 characters when tried
 ; (an Inno Setup/Windows version-resource quirk, not investigated
@@ -191,6 +216,12 @@ VersionInfoVersion={#MyAppVersion}.1
 ; string field is supplementary). RELEASE_MANIFEST.md is the
 ; authoritative place for the full build ID.
 VersionInfoTextVersion=build {#MyBuildId}
+; The installer .exe's own Properties -> Details tab (distinct from
+; AppPublisher/AppCopyright above, which are what the install wizard
+; itself displays) -- same real values, not left at Inno Setup's
+; defaults.
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoCopyright={#MyAppCopyright}
 Compression=lzma2/max
 SolidCompression=yes
 ; x64 only -- BeatShoreDesktop.exe, the VST3, and tfjs-node's native

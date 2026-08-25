@@ -138,6 +138,17 @@ target_link_libraries(HeartbeatAckTest
 # Win32 event handles.
 add_executable(SchedulerTest Source/scheduler_test.cpp)
 
+# Real load-boundary test against a REAL, already-running
+# BeatShoreDesktop.exe -- exercises kMaxConcurrentSessions and
+# kMaxGlobalQueueDepth with genuine HELLO-completed connections and real
+# shared-memory audio. Deliberately NOT built on BridgeClient.h (see
+# Source/load_boundary_test.cpp's own header comment for why its
+# requestInFlight guard makes it unsuitable for this specific test) --
+# a thin, direct client instead, so no JUCE dependency needed here
+# either.
+add_executable(LoadBoundaryTest Source/load_boundary_test.cpp)
+target_compile_features(LoadBoundaryTest PRIVATE cxx_std_17)
+
 # Integration tests for BeatShoreDesktop's multi-session architecture --
 # drives TWO real BridgeClient instances against a REAL, already-running
 # BeatShoreDesktop.exe (like BridgeClientTest, not a mock -- needs a real

@@ -155,6 +155,15 @@ Real and verified, as of the most recent work in this document:
   modes" below — including an honest account of which specific
   rejection thresholds (16-session, 24-job-queue) this load pattern
   didn't actually reach.
+- **Pushed to a real GitHub remote, both CI TODOs fixed, and the
+  `kMaxConcurrentSessions` rejection triggered for real for the first
+  time** (25 near-simultaneous connections → 17 connected / 8 rejected,
+  matching the desktop's own log exactly). The `kMaxGlobalQueueDepth`
+  boundary still wasn't reached despite genuine escalating effort — see
+  "Tenth: pushed to GitHub, CI TODOs fixed, and the held-open-connection
+  test client finally built" below for the honest account, including a
+  real bug found and fixed in the new test tool itself (not the
+  desktop) along the way.
 
 See section 4 ("Test evidence") for the specific numbers behind each of
 these, and section 5 for the full engineering narrative.
@@ -1877,6 +1886,102 @@ without actually filling a disk), a genuinely-held-open-connection test
 client that could force the session/queue-depth rejection boundaries
 under real load, and the elevated-desktop/non-elevated-DAW scenario
 (still needs interactive UAC, still unavailable here).
+
+### Tenth: pushed to GitHub, CI TODOs fixed, and the held-open-connection test client finally built
+
+Three real threads closed this round, one left genuinely open (not
+glossed over).
+
+**Pushed to a real remote for the first time.** The user created
+`github.com/krishavi85/BeatShore-VST3-Plugin` and supplied the standard
+"first commit" push snippet; adapted rather than run verbatim (this
+repo already had real history — `git init` was a no-op, and a real
+README replaced the bare placeholder header the snippet would have
+produced). `main` and both existing tags pushed cleanly. Checked via the
+public GitHub API (no auth available, so read-only): the repo, the
+commit, and the workflow file are all confirmed present and correct.
+
+**Both CI workflow TODOs from the "Eighth" section are now filled in.**
+The JUCE/VST3 SDK fetch step is pinned to the *exact* commits actually
+vendored and tested against all session — read directly from the local
+`native/JUCE`/`native/vst3sdk` `.git` directories (`git log -1
+--format=%H`), not re-derived from a version string JUCE doesn't tag at
+every commit. `build-release.ps1` no longer hardcodes this machine's own
+`vcvars64.bat`/`ISCC.exe` paths — it auto-detects both (via `vswhere.exe`,
+present on every VS2017+ install including GitHub-hosted runners, and
+PATH/standard install locations respectively), with override parameters
+for the rare case auto-detection picks wrong. Verified locally: a full
+run after the change still exits 0 with every test passing.
+
+**A genuine mystery, surfaced but not resolved**: pushing a new tag
+(`v0.2.0-rc3`, carrying both fixes) to test whether the workflow now
+actually runs showed **zero workflow runs on the repository**, even
+though the workflow itself is registered and `state: active` per the
+API. This isn't a defect in the workflow file — GitHub parsed and
+accepted it — so this is almost certainly an account/repo-level Actions
+setting (new repositories sometimes need Actions manually enabled via
+the GitHub UI) that isn't visible or fixable from a read-only,
+unauthenticated API check. Flagged directly to the user rather than
+guessed at further.
+
+**A real held-open-connection test client, finally built**
+(`native/BridgeClientTest/Source/load_boundary_test.cpp`,
+`LoadBoundaryTest.exe`) — the specific gap left open at the end of the
+"Ninth" section above. Deliberately not built on `BridgeClient.h`: its
+`requestInFlight` guard structurally prevents holding more than one
+request open per connection, which is exactly what's needed to build
+real queue depth. `LoadBoundaryTest` is a thin, direct client (reusing
+`NamedPipeIO.h`/`MiniJson.h`/`SharedAudioBuffer.h`, the same headers the
+production code uses) with two modes:
+
+- `--sessions N holdMs`: opens N real HELLO-completed connections and
+  holds them open. **This genuinely triggered the `kMaxConcurrentSessions`
+  rejection for the first time**: 25 near-simultaneous connections
+  produced 17 connected / 8 rejected, matching the desktop's own log
+  (`already at kMaxConcurrentSessions (16)`) exactly, 8-for-8. The 17-not-
+  16 is the same documented, expected "soft cap, can transiently exceed
+  under real timing" behavior the code's own comment already names — not
+  a bug.
+- `--queue sessions perSession`: each of N sessions fires `perSession`
+  real `ANALYSIS_REQUEST`s (real SHM audio) back-to-back with no wait in
+  between, to build real queue depth toward `kMaxGlobalQueueDepth=24`.
+  **This did not reach the rejection boundary** despite genuine, escalating
+  effort: three audio durations (0.2s, 10s, the 60s maximum
+  `kMaxCaptureSeconds` allows), both a naive burst and a version
+  restructured around an atomic barrier so all 16 sessions' first
+  requests release together instead of trickling out as each thread
+  finishes its own SHM prep. Every configuration: 32/32 requests
+  accepted, zero `QUEUE_FULL`. Working hypothesis, not a confirmed
+  finding: `kMaxConcurrentSessions=16` combined with each session's own
+  strictly sequential per-connection message loop (one line fully
+  handled — including a real synchronous multi-megabyte temp-file write
+  — before the next is even read) may genuinely bound peak simultaneous
+  queue depth below 24 for any real client load, session cap included.
+  Confirming that would need instrumenting the desktop's own queue-depth
+  at runtime, not attempted here since it would mean modifying production
+  code purely to observe a test.
+
+**A real bug was found and fixed during this work — in the new test
+tool itself, not the desktop.** The first few `--queue` runs appeared to
+hang indefinitely; the desktop's own log showed it had correctly
+processed and responded to every request within about a second each
+time. Instrumenting the test client with per-line logging revealed why:
+`transcribePolyphonic`'s terminal message type is `MIDI_RESULT`, not
+`ANALYSIS_RESULT` (a distinction this project has hit before, in
+`BridgeClient.h`'s own history — see "Polyphonic transcription: now
+wired into the plugin" above) — the test's terminal-message filter only
+recognized `ANALYSIS_RESULT`/`ERROR`, silently treating every real
+`MIDI_RESULT` as a skippable progress update, so its "how many terminal
+responses am I still waiting for" counter never reached zero even though
+the desktop had already answered everything correctly. Worth stating
+plainly: this was chased as a suspected desktop-side concurrency bug for
+some time (a small scale reproduction, close reading of `JobQueue`'s
+`push()`/`waitPop()` for a lost-wakeup race) before the actual,
+mundane cause was found — the investigation process is recorded here
+because concluding "desktop bug" and being wrong would have been a real
+mistake to publish, and the discipline that caught it (verify against a
+smaller, fully-traceable repro before concluding) is worth keeping
+visible, not just the eventual right answer.
 
 ### Second round: real blockers found by external review, fixed for real
 

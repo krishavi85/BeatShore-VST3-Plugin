@@ -39,12 +39,25 @@ Last updated 2026-08-25.
 - A real, brand-derived icon (not the generic Windows default), embedded
   in `BeatShoreDesktop.exe` (taskbar, tray, Explorer) and the installer,
   verified by extracting it back out of both compiled binaries.
-- Under real version control (`git`) for the first time, tagged
-  (`v0.2.0-rc1`, `v0.2.0-rc2`). A GitHub Actions release workflow exists
-  (`.github/workflows/release.yml`) but is unverified — no live GitHub
-  Actions runner has run it yet, and it has two labeled TODOs (fetching
-  the vendored JUCE/VST3 SDK sources; making `build-release.ps1`'s
-  hardcoded local tool paths CI-portable).
+- Under real version control (`git`), pushed to
+  [github.com/krishavi85/BeatShore-VST3-Plugin](https://github.com/krishavi85/BeatShore-VST3-Plugin)
+  for the first time, tagged (`v0.2.0-rc1` through `v0.2.0-rc3`). Both of
+  the CI workflow's original TODOs are now filled in (JUCE/VST3 SDK
+  fetch pinned to the exact vendored commits; `build-release.ps1`
+  auto-detects its build tools instead of hardcoding a local path,
+  verified working locally) — but the workflow **still has zero actual
+  runs** even after pushing a matching tag, despite being registered and
+  valid per the GitHub API. This needs checking from the GitHub UI/account
+  side (new repos sometimes need Actions manually enabled) — not
+  diagnosable further from a read-only, unauthenticated API check.
+- A real held-open-connection load test
+  (`native/BridgeClientTest/Source/load_boundary_test.cpp`,
+  `LoadBoundaryTest.exe`) genuinely triggered the `kMaxConcurrentSessions`
+  rejection for the first time: 25 near-simultaneous connections → 17
+  connected / 8 rejected, matching the desktop's own log exactly. The
+  `kMaxGlobalQueueDepth=24` rejection was **not** reached despite real,
+  escalating effort (three audio durations, a barrier-synchronized
+  burst) — see "Current limitations" below.
 - Four failure modes verified empirically against the **installed**
   build (`native/installer/stage`'s own `BeatShoreDesktop.exe`, not the
   dev tree): a corrupted Basic Pitch model file, a genuinely missing
@@ -93,18 +106,27 @@ Last updated 2026-08-25.
   model), no persistent per-identity ban list, and the elevated-desktop/
   non-elevated-DAW mandatory-integrity-control scenario is unverified
   (standing guidance: don't run `BeatShoreDesktop.exe` elevated).
-- **The 512MB audio-memory budget and the 16-session/24-job rejection
-  boundaries have not been reached under genuine load.** A real
-  40-session concurrent burst (see above) never approached them —
-  one-shot test clients (connect, one request, disconnect) drain live
-  sessions and queue depth faster than the ceilings require, so no
-  rejection was ever triggered. The rejection *logic* is verified
-  (structurally identical to the already-tested `RATE_LIMITED` check),
-  but genuinely exhausting these three limits under real load would need
-  a test client that holds its connection open independent of request
-  completion — not built yet.
-- **The CI workflow is unverified** — written, never run on a real
-  GitHub Actions runner; has two labeled TODOs (see above).
+- **`kMaxConcurrentSessions=16` is now genuinely verified** (see above)
+  **but `kMaxGlobalQueueDepth=24` and the 512MB audio-memory budget still
+  are not**, despite real, escalating attempts with a purpose-built
+  held-open-connection test client (`LoadBoundaryTest.exe`): three audio
+  durations (0.2s/10s/60s, to slow individual requests down) and both a
+  naive and a barrier-synchronized simultaneous burst, up to 32 real
+  concurrent requests (the maximum `kMaxConcurrentSessions ×
+  kMaxActiveJobsPerSession` allows) — all accepted, zero `QUEUE_FULL`
+  every time. Working hypothesis, not confirmed: `kMaxConcurrentSessions`
+  combined with each session's own strictly sequential per-connection
+  message processing may genuinely bound real-world queue depth below 24
+  regardless of load pattern. The rejection logic itself reads correctly
+  and is structurally identical to the already-tested `RATE_LIMITED`
+  check; confirming it fires under real conditions would need
+  instrumenting the desktop's own live queue depth, not attempted since
+  that means modifying production code purely to observe a test.
+- **The CI workflow has zero actual runs**, even after pushing a tag
+  that should trigger it, despite being registered and valid per the
+  GitHub API. Needs checking from the GitHub UI/account side (see
+  "Current verified capabilities" above) — not diagnosable further from
+  here.
 
 ## Exact artifact version and hashes
 
@@ -116,7 +138,7 @@ report) in `RELEASE_MANIFEST.md`:
 |---|---|
 | Version | 0.2.0 |
 | Build ID | 20260824.1 |
-| Source commit | `8e2fbf7` (tag `v0.2.0-rc2`) |
+| Source commit | `8e2fbf7` (tag `v0.2.0-rc2`) — the artifacts below were built from this exact commit and have **not** been rebuilt since; `main` has since moved on to `v0.2.0-rc3` (CI fixes, the new load-boundary test tool) but those changes don't touch the desktop/VST3/installer source, so rebuilding would be expected to reproduce identical binaries, not confirmed by an actual rebuild |
 | Installer filename | `BeatShoreSetup-0.2.0.exe` |
 | Installer SHA-256 | `d10064b24588ce65bbddb536015238dcc21d66817559729622f00f2602afc335` |
 | Installer size | 98,838,285 bytes (~94.3MB) |
@@ -153,10 +175,13 @@ compiles of identical source — see `RELEASE_MANIFEST.md`).
    unverified — don't run `BeatShoreDesktop.exe` elevated.
 4. No code signing — expect SmartScreen warnings on a real install.
 5. Only one Node worker — see "Deferred decisions" below.
-6. Memory-budget and session/queue-depth *rejection* boundaries not yet
-   reached under real load (a real 40-session burst passed cleanly
-   without ever triggering them — see "Current limitations").
-7. CI workflow unverified (no real GitHub Actions run yet).
+6. Memory-budget and job-queue-depth *rejection* boundaries not yet
+   reached under real load, despite real, escalating attempts — see
+   "Current limitations" (`kMaxConcurrentSessions` itself **is** now
+   verified).
+7. CI workflow has zero runs even after a real trigger — likely needs
+   Actions manually enabled on the GitHub side, not diagnosable further
+   from here.
 
 ## Deferred decisions
 
@@ -209,8 +234,9 @@ they need real hardware, a certificate, or a human.
       with real values
 - [ ] Other Windows DAWs tested (Cubase, Ableton Live, FL Studio, Studio
       One)
-- [ ] CI workflow verified on a real GitHub Actions runner (currently
-      written but untested; two labeled TODOs remain)
+- [ ] CI workflow verified on a real GitHub Actions runner (both TODOs
+      now fixed, but zero runs exist even after a real trigger — needs
+      checking from the GitHub UI/account side first)
 
 Until the starred items are done, this is a **controlled Windows beta
 candidate**, not a public release.

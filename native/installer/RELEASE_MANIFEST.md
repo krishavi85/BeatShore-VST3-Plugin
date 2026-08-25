@@ -1,5 +1,19 @@
 # BeatShore release manifest
 
+**Regenerated again 2026-08-25** via `build-release.ps1 -CleanEngine` --
+the first real run of the clean-engine path (full `npm ci` from scratch,
+the verified `tfjs-node` trim reapplied, complete regression suite,
+confirms the release doesn't secretly depend on stale `node_modules`),
+plus a real, brand-derived icon now embedded in both
+`BeatShoreDesktop.exe` and the installer (previously the generic Windows
+default). **The hashes in this file now describe this build; the
+`c9a44cc1...`/`0d4e8b28...`/`90ff09b0...` installer hashes and the
+`f667b19a...` desktop-exe hash from the paragraph below are all
+superseded.** This project is also, as of this same update, a real git
+repository for the first time -- see "Source commit" in the table below.
+See STATUS.md's "Eighth: source control, CI, and the `-CleanEngine`
+verification" for the full account.
+
 Generated 2026-08-24 for a `0.2.0` staging build, **regenerated twice the
 same day**: once after the Start-at-login path-resolution fix, the first
 round of named-pipe security hardening, graceful tray shutdown, and a
@@ -40,7 +54,7 @@ signing alters the binary and therefore its hash.
 
 | File | SHA-256 | Size |
 |---|---|---|
-| `BeatShoreDesktop.exe` (Start-at-login fix, resource-limit tightening, requestId no longer touching the filesystem, SID-based pipe ACL, connection throttling, log redaction, graceful shutdown with a dedicated `BROKER_SHUTTING_DOWN` message) | `f667b19a9a189c3cdc6458a48ac2d2fd1be221760efdc19f68099dd439873c3f` | 188,416 bytes |
+| `BeatShoreDesktop.exe` (Start-at-login fix, resource-limit tightening, requestId no longer touching the filesystem, SID-based pipe ACL, connection throttling, log redaction, graceful shutdown with a dedicated `BROKER_SHUTTING_DOWN` message, **now with a real embedded icon**) | `6da67873ef53af7efc05efe480926ab2a0cddead4fcb1f0f72a9476f9a8a7691` | 300,032 bytes |
 | `BeatShore Bridge.vst3` (binary inside bundle: `Contents/x86_64-win/BeatShore Bridge.vst3`, rebuilt against the updated `BridgeClient.h`/`PluginEditor.cpp` — reacts to the new `BROKER_SHUTTING_DOWN` message) | `28ca81e6efc1804044cd9d5c1572768c56052d3488f6f1098c5cae665ae153f7` | 3,966,464 bytes |
 | `node/node.exe` (v24.19.0) | `3602f2bb1a10f2cbab4c36886218a33c1ab3db87290e73b033c46c77147d0237` | 92,825,416 bytes |
 | `engine/native/BeatShoreDesktop/engine/analyze.js` | `ecdfe755d6622ce53e8cf9d99a04f9a7735da984e3954178361117d3e278f5c6` | -- |
@@ -77,11 +91,11 @@ the next real release rather than trusting this note.)
 | Filename | `BeatShoreSetup-0.2.0.exe` |
 | Version | `0.2.0` (`AppVersion`/`MyAppVersion` -- the release this build belongs to) |
 | Build ID | `20260824.1` (`MyBuildId` in `BeatShoreSetup.iss`, embedded in the compiled exe's own version resource as `VersionInfoVersion=0.2.0.1` and the string field `VersionInfoTextVersion="build 20260824.1"` -- confirmed present via `(Get-Item ...).VersionInfo.FileVersionRaw` = `0.2.0.1` after compiling. Distinct from Version above because more than one compile can share the same release version, as happened today.) |
-| Size | 98,587,684 bytes (~94.0MB) |
-| SHA-256 | `c9a44cc1c0ae4235ac5056ab1ca5e020e9250e66b2cc79bd059fc4c71e6e702b` |
-| Compilation time | 2026-08-25T03:19:03Z (Inno Setup 6.7.3, zero warnings) |
-| Source commit | N/A -- this working directory is not a git repository (confirmed via `git rev-parse HEAD` failing with "not a git repository"); there is no version-control history to cite. If this project is put under git before a real release, this field should record the exact commit the staged tree was built from. |
-| Staging-manifest hash | `43a2b7c6872176a90432b4f0977af33515a62552b8202eb5a34ca3da430b3976` -- SHA-256 over every staged file's own SHA-256, sorted by path relative to `stage\`, joined `"<sha256>  <relpath>"` one per line (forward slashes, UTF-8, `\n`-joined) and hashed once more into this single value -- the exact algorithm is `build-release.ps1`'s own staging-manifest step, so this number is reproducible by that specific, documented procedure, not "however sha256sum happens to format its output" (an earlier hand-computed version of this same idea, using a plain `sha256sum`/`sort` pipeline, produced a *different* aggregate value over the *same* underlying files purely from formatting differences — same files, same individual hashes, different combined hash, because the two methods serialize the listing differently before hashing it. Neither is wrong; they're answering "does the file set match" via two different, non-interchangeable serializations. `build-release.ps1`'s method is the one to trust going forward, since it's the one an automated build actually runs.) The full per-file listing is saved alongside this manifest at `native/installer/staging-file-hashes.txt`. |
+| Size | 98,838,285 bytes (~94.3MB) |
+| SHA-256 | `d10064b24588ce65bbddb536015238dcc21d66817559729622f00f2602afc335` |
+| Compilation time | 2026-08-25T04:18:42Z (Inno Setup 6.7.3, zero warnings) |
+| Source commit | `8e2fbf7` (`v0.2.0-rc2`) -- this project is now a real git repository (`git init` + an initial commit `782654f`/`v0.2.0-rc1`, followed by `8e2fbf7`/`v0.2.0-rc2` adding the real icon). This build was produced from `8e2fbf7`'s tree via `build-release.ps1 -CleanEngine`. Verify with `git log --oneline --decorate` or `git show 8e2fbf7 --stat`. |
+| Staging-manifest hash | `2e922e4e651061fa81181c4de78ac541b51c850b5a923b892386050653d315d6` -- SHA-256 over every staged file's own SHA-256, sorted by path relative to `stage\`, joined `"<sha256>  <relpath>"` one per line (forward slashes, UTF-8, `\n`-joined) and hashed once more into this single value -- the exact algorithm is `build-release.ps1`'s own staging-manifest step, so this number is reproducible by that specific, documented procedure, not "however sha256sum happens to format its output" (see the prior build's note in this file's history for why a naive `sha256sum`/`sort` pipeline produces a *different* aggregate value over the *same* underlying files). The full per-file listing is saved alongside this manifest at `native/installer/staging-file-hashes.txt`. Staged file count: 8,479 -- identical to the non-`-CleanEngine` build immediately before this one, confirming the `tfjs-node` trim is reproducible from a from-scratch `npm ci`, not something that happened to work once. |
 
 **Not code-signed** -- no signing certificate available in this
 environment; hashes above are of an **unsigned** binary. Per the standing
@@ -229,6 +243,27 @@ then exercised end-to-end via:
   embedded in the compiled exe's own version resource
   (`FileVersionRaw`/`ProductVersionRaw` = `0.2.0.1`) before this
   manifest's final hashes were computed.
+- **`-CleanEngine`, run for real for the first time, plus a real icon**:
+  every prior build recorded in this file took the fast path and never
+  exercised `build-release.ps1 -CleanEngine`. This build did: a
+  completely fresh `npm ci --omit=dev` (124 packages, 23s) against the
+  pinned Node 24 toolchain, the verified `tfjs-node` trim reapplied, the
+  postinstall binding repair re-run, then the full staged self-test and
+  regression suite -- all passed, and every individual engine artifact
+  hash (`analyze.js`, `beatshore-dsp.js`, `tfjs_binding.node`,
+  `tensorflow.dll`, the Basic Pitch model files) came back **byte-
+  identical** to the non-clean build, confirmed by re-hashing each one
+  directly rather than assumed. `BeatShoreDesktop.exe` also now embeds a
+  real, brand-derived icon (see STATUS.md's "Eighth..." section) --
+  confirmed present by extracting it back out of the compiled exe, not
+  just trusting the resource compiler. Two additional failure-mode tests
+  were run against this exact staged tree: a corrupted Basic Pitch
+  `model.json` (self-test correctly isolates the failure to just that
+  check, exits 1) and a genuinely unwritable MIDI export directory (a
+  temporary, narrowly-scoped `icacls` deny rule, removed and verified
+  restored immediately after -- self-test again isolates the failure
+  correctly, exits 1). Neither test found a bug; both are real,
+  executed verification, not assumed from the code.
 
 Regenerate this manifest -- and re-run the same verification -- for every
 build before it ships. Do not hand-edit hashes; recompute them

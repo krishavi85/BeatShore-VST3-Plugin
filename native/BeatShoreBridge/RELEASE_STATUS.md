@@ -30,9 +30,26 @@ Last updated 2026-08-25.
   automated, reproducible build script
   (`native/installer/build-release.ps1`) that rebuilds from source,
   unconditionally restages, and runs the full regression suite against
-  the actual staged tree before ever compiling.
+  the actual staged tree before ever compiling. Its `-CleanEngine` path
+  (full `npm ci` from scratch, the verified `tfjs-node` trim reapplied)
+  has now actually been run and passed — the release doesn't secretly
+  depend on stale `node_modules`.
 - Real EULA content (not a placeholder) and a persistent, detailed
   self-test failure log with an incomplete-install marker.
+- A real, brand-derived icon (not the generic Windows default), embedded
+  in `BeatShoreDesktop.exe` (taskbar, tray, Explorer) and the installer,
+  verified by extracting it back out of both compiled binaries.
+- Under real version control (`git`) for the first time, tagged
+  (`v0.2.0-rc1`, `v0.2.0-rc2`). A GitHub Actions release workflow exists
+  (`.github/workflows/release.yml`) but is unverified — no live GitHub
+  Actions runner has run it yet, and it has two labeled TODOs (fetching
+  the vendored JUCE/VST3 SDK sources; making `build-release.ps1`'s
+  hardcoded local tool paths CI-portable).
+- Two additional failure modes verified empirically against the real
+  staged desktop: a corrupted Basic Pitch model file and a genuinely
+  unwritable MIDI export directory both produce an isolated, correctly-
+  attributed self-test failure (exit 1) — not a crash, not a false pass
+  on the unrelated checks.
 
 ## Current limitations
 
@@ -46,8 +63,6 @@ Last updated 2026-08-25.
   says explicitly it hasn't been attorney-reviewed.
 - **Placeholder publisher/support/product URLs and copyright line** in
   the installer script — real business decisions, not filled in here.
-- **No custom icon** — the tray, executable, and installer all use the
-  generic Windows default icon.
 - **Only Analyze Tempo has been observed live inside REAPER.**
   `transcribePolyphonic`'s live-captured round trip, REAPER project
   save/reload, and reconnect-after-desktop-restart are all unobserved in
@@ -65,24 +80,31 @@ Last updated 2026-08-25.
   model), no persistent per-identity ban list, and the elevated-desktop/
   non-elevated-DAW mandatory-integrity-control scenario is unverified
   (standing guidance: don't run `BeatShoreDesktop.exe` elevated).
+- **The 512MB audio-memory budget and 24-job global queue depth have not
+  been tested under genuine sustained concurrent load** — both require
+  real, simultaneously-queued jobs from multiple real `BridgeClient`
+  sessions (not just malformed/fake requests, which the existing
+  hardening tests already cover), not yet run.
+- **The CI workflow is unverified** — written, never run on a real
+  GitHub Actions runner; has two labeled TODOs (see above).
 
 ## Exact artifact version and hashes
 
-Current build, produced by `native/installer/build-release.ps1`, full
-detail (including per-file staging hashes and the machine-readable
+Current build, produced by `native/installer/build-release.ps1 -CleanEngine`,
+full detail (including per-file staging hashes and the machine-readable
 report) in `RELEASE_MANIFEST.md`:
 
 | Field | Value |
 |---|---|
 | Version | 0.2.0 |
 | Build ID | 20260824.1 |
+| Source commit | `8e2fbf7` (tag `v0.2.0-rc2`) |
 | Installer filename | `BeatShoreSetup-0.2.0.exe` |
-| Installer SHA-256 | `c9a44cc1c0ae4235ac5056ab1ca5e020e9250e66b2cc79bd059fc4c71e6e702b` |
-| Installer size | 98,587,684 bytes (~94.0MB) |
-| `BeatShoreDesktop.exe` SHA-256 | `f667b19a9a189c3cdc6458a48ac2d2fd1be221760efdc19f68099dd439873c3f` |
+| Installer SHA-256 | `d10064b24588ce65bbddb536015238dcc21d66817559729622f00f2602afc335` |
+| Installer size | 98,838,285 bytes (~94.3MB) |
+| `BeatShoreDesktop.exe` SHA-256 | `6da67873ef53af7efc05efe480926ab2a0cddead4fcb1f0f72a9476f9a8a7691` |
 | `BeatShore Bridge.vst3` SHA-256 | `28ca81e6efc1804044cd9d5c1572768c56052d3488f6f1098c5cae665ae153f7` |
 | Code-signed | No |
-| Source commit | N/A — not a git repository |
 
 **Do not treat this table as long-lived** — regenerate it (and
 `RELEASE_MANIFEST.md`) via `build-release.ps1` for every real build; the
@@ -112,8 +134,10 @@ compiles of identical source — see `RELEASE_MANIFEST.md`).
 3. Elevated-desktop / non-elevated-DAW pipe-connection scenario
    unverified — don't run `BeatShoreDesktop.exe` elevated.
 4. No code signing — expect SmartScreen warnings on a real install.
-5. Generic icon everywhere a real BeatShore icon should be.
-6. Only one Node worker — see "Deferred decisions" below.
+5. Only one Node worker — see "Deferred decisions" below.
+6. Memory budget and queue-depth limits untested under genuine sustained
+   concurrent load (see "Current limitations").
+7. CI workflow unverified (no real GitHub Actions run yet).
 
 ## Deferred decisions
 
@@ -144,7 +168,8 @@ they need real hardware, a certificate, or a human.
       regenerated after signing)
 - [ ] ★ Human legal review (JUCE 9 Starter terms, BeatShore EULA,
       third-party notices, a privacy policy)
-- [ ] ★ Real icon (tray, exe, installer, Add/Remove Programs)
+- [x] Real icon (tray, exe, installer, Add/Remove Programs) — done, see
+      "Current verified capabilities" above
 - [ ] Live polyphonic transcription verified in REAPER
       (`audioSource:"live-captured"`, MIDI import onto a new track,
       timing/chords/velocities checked)
@@ -152,13 +177,17 @@ they need real hardware, a certificate, or a human.
       restart mid-session, multiple instances, MIDI-learned trigger,
       playback/passthrough under load)
 - [ ] Failure/recovery behavior tested on an installed build (desktop
-      unavailable, Node crash, missing model files, unwritable MIDI
-      destination, full disk, oversized/malformed messages, long-running
-      cancellation, DAW closes mid-analysis)
+      unavailable, Node crash, full disk, oversized/malformed messages,
+      long-running cancellation, DAW closes mid-analysis, memory budget
+      and queue depth under sustained concurrent load — missing model
+      files and unwritable MIDI destination already tested, see
+      "Current verified capabilities")
 - [ ] Placeholder publisher/support/product URLs and copyright replaced
       with real values
 - [ ] Other Windows DAWs tested (Cubase, Ableton Live, FL Studio, Studio
       One)
+- [ ] CI workflow verified on a real GitHub Actions runner (currently
+      written but untested; two labeled TODOs remain)
 
 Until the starred items are done, this is a **controlled Windows beta
 candidate**, not a public release.

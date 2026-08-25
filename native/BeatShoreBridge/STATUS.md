@@ -133,6 +133,17 @@ Real and verified, as of the most recent work in this document:
   running it end to end — twice failing on real bugs the run itself
   caught, once clean — see "Seventh: an automated, reproducible release
   build" below.
+- **Real version control, a real icon, and the `-CleanEngine` build path
+  verified for the first time.** This project is now a real git
+  repository (tags `v0.2.0-rc1`, `v0.2.0-rc2`; see `RELEASE_MANIFEST.md`
+  for the current commit). `BeatShoreDesktop.exe` and the installer both
+  carry a real, brand-derived icon (not the generic Windows default),
+  verified by extracting it back out of both compiled binaries. A full
+  `-CleanEngine` run (`npm ci` from scratch, the verified `tfjs-node`
+  trim reapplied, the complete regression suite) passed against a
+  from-scratch engine tree, confirming the release doesn't secretly
+  depend on stale `node_modules`. See "Eighth: source control, CI, and
+  the `-CleanEngine` verification" below.
 
 See section 4 ("Test evidence") for the specific numbers behind each of
 these, and section 5 for the full engineering narrative.
@@ -1675,14 +1686,115 @@ script).
 
 **Not attempted**: actual code signing (no certificate available, though
 the script is ready to invoke `signtool` the moment one exists);
-wiring this into a real CI system (GitHub Actions or equivalent) rather
-than a script run by hand — this project isn't in a CI-hosted repository
-today (it isn't in a git repository at all, see `RELEASE_MANIFEST.md`'s
-"Source commit" field); and the `-CleanEngine` path (full `npm ci` +
-re-trim from scratch) wasn't exercised this run since the engine's own
-dependencies haven't changed — that code path is new and, honestly,
-less battle-tested than the rest of the script until it's actually run
-once.
+wiring this into a real CI system. ~~This project isn't in a git
+repository at all~~ **Resolved, and CI written (unverified)** — see
+"Eighth: source control, CI, and the `-CleanEngine` verification" below.
+~~The `-CleanEngine` path... wasn't exercised this run~~ **Also
+resolved** — same section.
+
+### Eighth: source control, CI, and the `-CleanEngine` verification
+
+Three real gaps closed in one pass, each addressing something the
+project genuinely lacked rather than re-verifying something already
+covered:
+
+**Git, for the first time.** This project had no version control at all
+through every round of work described above — every "Source commit: N/A"
+line in `RELEASE_MANIFEST.md` was a real, honest limitation, not a
+formality. `git init`, a `.gitignore` excluding everything generated or
+vendored (build directories, `node_modules`, the ~1.1GB combined JUCE/VST3
+SDK trees, the downloaded Node 24 toolchain, installer staging/output —
+59 real source/doc/script files committed, not the 2.8GB working tree),
+an initial commit, and an annotated tag `v0.2.0-rc1`. A second commit
+(icon + `-CleanEngine` verification, both described below) is tagged
+`v0.2.0-rc2`. `RELEASE_MANIFEST.md`'s "Source commit" field now records a
+real commit hash instead of "N/A" going forward.
+
+**A GitHub Actions workflow** (`.github/workflows/release.yml`) —
+written, not verified, since no real GitHub Actions runner was available
+to test it against. Uses portable equivalents of this session's own
+local tooling (`ilammy/msvc-dev-cmd` instead of a hardcoded local
+`vcvarsall.bat` path, `actions/setup-node` instead of a manually
+downloaded Node zip, `choco` for Ninja/Inno Setup) rather than pretending
+this machine's specific paths would work on a hosted runner. Two things
+left honestly unfilled rather than guessed at: the exact commands to
+fetch JUCE/VST3 SDK into CI (this project's own history of how those were
+originally obtained locally isn't recorded anywhere the workflow could
+read it back from) — the workflow contains a **labeled TODO step**, not
+invented URLs — and `build-release.ps1` itself still hardcodes this local
+machine's `vcvars64.bat`/`ISCC.exe` paths, which won't resolve on a
+GitHub-hosted runner either; making those configurable is real follow-up
+work, not done here. A `sign` job is written and gated on
+`SIGNING_CERT_BASE64`/`SIGNING_CERT_PASSWORD` secrets, no-opping cleanly
+(not failing) when they're unset, matching this project's standing
+"skip signing loudly, not silently" rule from `build-release.ps1` itself.
+
+**`-CleanEngine` actually run, for the first time.** Every prior
+`build-release.ps1` run in this document (including the one immediately
+above) took the fast path and never exercised the `-CleanEngine` branch —
+a real, if narrow, gap: nothing had confirmed the release doesn't
+secretly depend on the specific `node_modules` state already sitting on
+disk. Run for real this time: a completely fresh `npm ci --omit=dev`
+against the pinned Node 24 toolchain (124 packages, 23s), the verified
+`tfjs-node` trim reapplied (`deps/`, source maps), the postinstall
+binding repair re-run, then the full staged self-test and regression
+suite (tempo, `transcribePolyphonic`, `MultiSessionTest`) — all passed
+against this from-scratch tree, and the resulting staged file count
+(8,479) matched the non-clean build exactly, confirming the trim is
+reproducible, not something that happened to work once. Installer
+recompiled clean from this tree; see `RELEASE_MANIFEST.md` for the
+resulting hashes.
+
+**A real BeatShore icon, derived from the project's actual logo, not a
+placeholder.** `assets/beatshore-logo.png` (a real brand asset already
+present in the project, not something invented this session) contains a
+circular badge mark plus a "BeatShore" wordmark;
+`assets/icon/generate_icon.py` crops just the badge (the wordmark doesn't
+read at small icon sizes), centers it on a square canvas, and rasterizes
+a proper multi-resolution `.ico` (16/20/24/32/40/48/64/128/256px) via
+Pillow. Wired in two places: embedded as a Win32 resource in
+`BeatShoreDesktop.exe` (`Source/resources.rc`, new
+`Source/resource.h` for the shared resource ID) — used both for the
+exe's own Explorer/taskbar icon and, replacing the generic
+`IDI_APPLICATION` the tray previously used, for the tray icon itself —
+and set as `SetupIconFile` for the installer `.exe`. Add/Remove Programs
+gets the same real icon automatically via the existing
+`UninstallDisplayIcon={app}\BeatShoreDesktop.exe` (no separate change
+needed there). **Verified by extracting the icon back out of both
+compiled binaries** (`System.Drawing.Icon.ExtractAssociatedIcon`,
+not just trusting that embedding it "should" have worked) and visually
+confirming it's the real badge, not corrupted or still the system
+default. Not attempted: BeatShore branding inside the VST3 plugin editor
+itself (explicitly optional per the review that requested this work).
+
+**Two more failure-mode tests, run empirically against the real staged
+desktop, not reasoned about**: a corrupted Basic Pitch `model.json`
+(swapped for a plain text file, self-test re-run, restored immediately
+after) produced exactly the expected isolated failure — tempo and the
+MIDI-export-directory check still correctly `PASS`, only the
+transcription check `FAIL`s, with `noteCount=-1` rather than a crash or a
+false pass, and the process exits 1 (confirmed by checking `$?`
+correctly this time — an initial check of this same run was accidentally
+measuring `tail`'s exit code instead of the desktop's own, a mistake
+caught and corrected before trusting the result). A genuinely unwritable
+MIDI export directory (a temporary `icacls` deny-ACE on
+`~\Documents\BeatShore\Exports`, applied and removed narrowly and
+verified restored to its exact original ACL afterward) produced the same
+clean pattern: tempo and transcription both still `PASS`, only the
+writability check `FAIL`s, exit 1. Neither test found a bug — both are
+recorded here as real, executed verification of documented behavior, not
+assumed from the code alone.
+
+**Not attempted this pass**: the deeper remaining items from the same
+review (testing the 512MB memory budget and 24-job queue depth under
+genuine sustained concurrent load — the queue-depth check specifically
+requires real, currently-queued jobs, which requires real shared-memory
+audio from multiple genuine `BridgeClient` sessions running concurrently,
+not just malformed/fake requests the existing hardening test already
+covers), disk-full behavior (not safely simulable without actually
+filling a disk), Node-crash-mid-inference beyond what `NODE_EXITED`
+already covers, and the elevated-desktop/non-elevated-DAW scenario
+(still requires interactive UAC, still not available here).
 
 ### Second round: real blockers found by external review, fixed for real
 

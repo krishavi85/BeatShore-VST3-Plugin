@@ -1,0 +1,149 @@
+# BeatShore Windows release build.
+#
+# HONESTLY UNVERIFIED: this workflow was written without access to a real
+# GitHub Actions runner (this project was developed and tested entirely
+# from a local Windows environment -- see native/BeatShoreBridge/STATUS.md).
+# It encodes the same steps that were run and verified locally via
+# native/installer/build-release.ps1, using portable GitHub Actions
+# equivalents (ilammy/msvc-dev-cmd instead of a hardcoded local
+# vcvarsall.bat path, actions/setup-node instead of a locally-downloaded
+# Node zip, choco for CMake/Ninja/Inno Setup instead of assuming they're
+# already installed) rather than this machine's own specific paths, which
+# would not be portable to a CI runner at all. Treat the first real run
+# of this workflow as itself a verification step this project still
+# needs, not something to assume works because it's written down.
+#
+# What this workflow does NOT attempt:
+#   - Fetching the vendored JUCE and VST3 SDK sources into native/JUCE
+#     and native/vst3sdk (both .gitignored -- see the repo root
+#     .gitignore's own comment). This project's own history of how those
+#     were originally obtained in the local dev environment isn't
+#     recorded anywhere this workflow could read it back from, so the
+#     "checkout vendored SDKs" step below is a labeled TODO, not a
+#     guess at URLs that might be wrong. Fill in the real clone/download
+#     commands (matching the pinned versions in STATUS.md: JUCE 9.0.1,
+#     VST3 SDK 3.8.1) before this workflow can actually build anything.
+#   - Code signing (needs a real certificate + secure secret storage --
+#     see the signing job below, which is written but will no-op without
+#     SIGNING_CERT_BASE64/SIGNING_CERT_PASSWORD secrets configured).
+#   - Anything on a self-hosted/controlled Windows release runner beyond
+#     what a standard GitHub-hosted windows-latest runner provides -- if
+#     signing requires a hardware token or an on-prem HSM, that needs a
+#     self-hosted runner, not this one.
+
+name: BeatShore Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      cleanEngine:
+        description: "Run the full -CleanEngine path (npm ci from scratch)"
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # TODO (unfilled, see the file-level comment above): fetch
+      # native/JUCE (JUCE 9.0.1) and native/vst3sdk (VST3 SDK 3.8.1)
+      # here -- e.g. via git clone --branch <tag> <upstream-url>, or a
+      # git submodule if this project adopts submodules later. Nothing
+      # below this step will actually compile without this filled in.
+      - name: Fetch vendored SDKs (JUCE, VST3 SDK) [UNFILLED]
+        run: |
+          Write-Host "TODO: clone JUCE 9.0.1 into native/JUCE and VST3 SDK 3.8.1 into native/vst3sdk here."
+          Write-Host "See native/BeatShoreBridge/STATUS.md for the pinned versions this project builds against."
+
+      - name: Set up MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up Node 24 (for build-release.ps1's own use, and for -CleanEngine)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Ninja and Inno Setup
+        run: |
+          choco install ninja innosetup -y --no-progress
+
+      # build-release.ps1 hardcodes this machine's own local paths for
+      # vcvars64.bat and ISCC.exe (see its own $vcvars/$iscc variables) --
+      # both need to be parameterized (or resolved via vswhere / the PATH
+      # ilammy/msvc-dev-cmd and choco's Inno Setup install both already
+      # put things on) before this step will actually find either tool on
+      # a GitHub-hosted runner. Flagged here rather than silently
+      # papered over: this is real follow-up work, not done in this
+      # commit.
+      - name: Run release build
+        shell: pwsh
+        run: |
+          $cleanEngineFlag = if ("${{ inputs.cleanEngine }}" -eq "true") { "-CleanEngine" } else { "" }
+          & .\native\installer\build-release.ps1 @cleanEngineFlag
+        # Non-zero exit (a failed build/test/compile step inside the
+        # script) fails this job automatically -- build-release.ps1 is
+        # designed to refuse to produce an installer from a tree that
+        # failed its own tests, see its own top-of-file comment.
+
+      - name: Upload installer and release report
+        uses: actions/upload-artifact@v4
+        with:
+          name: beatshore-installer
+          path: |
+            native/installer/Output/BeatShoreSetup-*.exe
+            native/installer/release-report.json
+            native/installer/staging-file-hashes.txt
+          if-no-files-found: error
+          # Immutable per the release process this project wants (see
+          # STATUS.md item 9): each run's artifacts are their own
+          # retained record, never overwritten by a later run under the
+          # same name+run number.
+
+  sign:
+    needs: build
+    runs-on: windows-latest
+    # Only runs on an actual version tag push, not on a manual dry-run --
+    # signing should be a deliberate release action, not something that
+    # fires on every workflow_dispatch test.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: beatshore-installer
+          path: artifacts
+
+      # No-ops cleanly (does not fail the job) if the two secrets below
+      # aren't configured -- signing requires a real certificate this
+      # environment never had access to; wiring the secrets in is a
+      # deliberate step for whoever owns the signing certificate, not
+      # assumed here.
+      - name: Sign artifacts (requires SIGNING_CERT_BASE64 + SIGNING_CERT_PASSWORD secrets)
+        shell: pwsh
+        env:
+          CERT_B64: ${{ secrets.SIGNING_CERT_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrEmpty($env:CERT_B64)) {
+            Write-Host "SIGNING_CERT_BASE64 not configured -- skipping signing. Artifacts remain unsigned." -ForegroundColor Yellow
+            exit 0
+          }
+          $certPath = Join-Path $env:RUNNER_TEMP "beatshore-signing.pfx"
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:CERT_B64))
+          $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+          if (-not $signtool) { throw "signtool.exe not found -- install the Windows SDK on this runner" }
+          Get-ChildItem artifacts -Filter "*.exe" -Recurse | ForEach-Object {
+            & $signtool sign /f $certPath /p $env:CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signing failed for $($_.FullName)" }
+            & $signtool verify /pa /v $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signature verification failed for $($_.FullName)" }
+          }
+          Remove-Item $certPath -Force

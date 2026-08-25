@@ -2047,12 +2047,43 @@ follow-up commit updating the manifest to reference that exact hash --
 since a commit can't literally contain its own resulting hash).
 
 **Still explicitly not attempted, and not attemptable from here**:
-enabling GitHub Actions on the account (a GitHub UI action only the
-repo owner can take -- flagged clearly to the user, not guessed at
-further); live REAPER transcription and lifecycle testing; a
-clean-machine install (Windows Sandbox now ruled out too, see above);
-code signing; human legal review; the `kMaxGlobalQueueDepth`/512MB
-rejection boundaries under real load (see "Tenth..." above).
+live REAPER transcription and lifecycle testing; a clean-machine install
+(Windows Sandbox now ruled out too, see above); code signing; human
+legal review; the `kMaxGlobalQueueDepth`/512MB rejection boundaries
+under real load (see "Tenth..." above).
+
+**Update, same session: Actions were enabled on the GitHub side (by the
+user, between checks -- not something done from here), and CI genuinely
+started running.** Both real runs so far (`v0.2.0-rc3`, `v0.2.0-rc4`)
+failed, each in roughly 80-110 seconds -- too fast to be a real compile
+failure. GitHub's raw job-log download requires authentication this
+environment doesn't have (confirmed: `/actions/jobs/{id}/logs` returns
+403 even for a public repo), so the root cause was found by reasoning
+about what's genuinely different on a fresh checkout, not by reading the
+actual failure output: `build-release.ps1` assumed every CMake build
+directory (`native/BeatShoreDesktop/build`,
+`native/BeatShoreBridge/build`, `native/vst3sdk/build`,
+`native/BridgeClientTest/build`) already existed and was already
+configured -- true on this dev machine, where all four had been
+configured interactively across many earlier sessions long before this
+script existed, never true on a genuinely fresh checkout, since all four
+are gitignored. `ninja` alone, with no prior `cmake -B`, fails
+immediately. Fixed (commit `100d864`) by adding an unconditional `cmake
+-B` configure step before every `ninja` invocation (idempotent and fast
+when already configured, so free on a machine like this one) plus the
+two build steps that didn't exist at all before: the VST3 SDK Validator
+(exact CMake flags read from this machine's own already-configured
+`CMakeCache.txt`, not guessed -- `SMTG_ADD_VST3_UTILITIES=ON` is
+specifically what produces `validator.exe`) and `BridgeClientTest`
+(needed for `BridgeClientTest.exe`/`MultiSessionTest.exe`, which the
+staged regression suite runs). Verified locally: still exits 0, every
+hash byte-identical to the immediately prior build -- a pure
+build-infrastructure fix, confirmed to have zero effect on the actual
+shipped binaries. **Not yet confirmed against a real fresh CI
+checkout** -- both failed runs were triggered before this fix landed;
+the next Actions run against `main` (no new tag needed --
+`workflow_dispatch` is already wired in) is what would actually confirm
+it.
 
 ### Second round: real blockers found by external review, fixed for real
 

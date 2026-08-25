@@ -52,15 +52,10 @@ Last updated 2026-08-25.
   without error.
 - Under real version control (`git`), pushed to
   [github.com/krishavi85/BeatShore-VST3-Plugin](https://github.com/krishavi85/BeatShore-VST3-Plugin)
-  for the first time, tagged (`v0.2.0-rc1` through `v0.2.0-rc4`). Both of
-  the CI workflow's original TODOs are now filled in (JUCE/VST3 SDK
-  fetch pinned to the exact vendored commits; `build-release.ps1`
-  auto-detects its build tools instead of hardcoding a local path,
-  verified working locally) — but the workflow **still has zero actual
-  runs** even after pushing a matching tag, despite being registered and
-  valid per the GitHub API. This needs checking from the GitHub UI/account
-  side (new repos sometimes need Actions manually enabled) — not
-  diagnosable further from a read-only, unauthenticated API check.
+  for the first time, tagged (`v0.2.0-rc1` through `v0.2.0-rc4`). Actions
+  are now enabled and CI genuinely runs — but both real runs so far
+  failed fast (~80-110s); root cause found and fixed (see "Current
+  limitations" below) but not yet confirmed against a real fresh CI run.
 - A real held-open-connection load test
   (`native/BridgeClientTest/Source/load_boundary_test.cpp`,
   `LoadBoundaryTest.exe`) genuinely triggered the `kMaxConcurrentSessions`
@@ -135,11 +130,21 @@ Last updated 2026-08-25.
   check; confirming it fires under real conditions would need
   instrumenting the desktop's own live queue depth, not attempted since
   that means modifying production code purely to observe a test.
-- **The CI workflow has zero actual runs**, even after pushing a tag
-  that should trigger it, despite being registered and valid per the
-  GitHub API. Needs checking from the GitHub UI/account side (see
-  "Current verified capabilities" above) — not diagnosable further from
-  here.
+- **CI now runs (Actions were enabled on the GitHub side between
+  sessions) but both real runs so far have failed**, in the
+  ~80-110-second range — too fast to be a real compile failure. Root
+  cause identified by reasoning, not by reading the failure log (GitHub's
+  raw job-log download requires authentication this environment doesn't
+  have): `build-release.ps1` assumed every CMake build directory already
+  existed and was configured — true on the dev machine this project was
+  built on, never true on a genuinely fresh checkout. Fixed (commit
+  `100d864`, pushed to `main`) and verified locally (still exits 0,
+  every hash byte-identical to before — a pure build-infrastructure fix
+  with zero effect on the shipped binaries) but **not yet confirmed
+  against an actual fresh CI checkout** — both failed runs were
+  triggered before this fix landed. Trigger a fresh run against `main`
+  (via the Actions tab's "Run workflow" — the workflow already supports
+  `workflow_dispatch`, no new tag required) to confirm.
 
 ## Exact artifact version and hashes
 
@@ -248,9 +253,11 @@ they need real hardware, a certificate, or a human.
       replaced with real, live addresses
 - [ ] Other Windows DAWs tested (Cubase, Ableton Live, FL Studio, Studio
       One)
-- [ ] CI workflow verified on a real GitHub Actions runner (both TODOs
-      now fixed, but zero runs exist even after a real trigger — needs
-      checking from the GitHub UI/account side first)
+- [ ] CI workflow verified on a real GitHub Actions runner — Actions
+      enabled and now running, but both real runs failed fast; a real
+      root cause (missing CMake configure step on a fresh checkout) is
+      fixed on `main` (`100d864`) but not yet confirmed by an actual
+      passing run
 
 Until the starred items are done, this is a **controlled Windows beta
 candidate**, not a public release.

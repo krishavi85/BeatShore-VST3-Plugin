@@ -1,0 +1,12 @@
+// Windows resource script -- embeds the real BeatShore icon (derived from
+// the project's actual brand logo, assets/beatshore-logo.png -- see
+// assets/icon/generate_icon.py for how it was extracted) into
+// BeatShoreDesktop.exe. This is what makes the icon show up in Explorer,
+// the taskbar, Alt-Tab, and (via UninstallDisplayIcon in
+// BeatShoreSetup.iss pointing at this exe) Add/Remove Programs -- not
+// just the tray icon, which is loaded separately at runtime (see
+// main.cpp's runTrayApp(), which loads this same resource by ID rather
+// than the generic system IDI_APPLICATION it used before).
+#include "resource.h"
+
+IDI_APP_ICON ICON "..\\..\\..\\assets\\icon\\BeatShore.ico"

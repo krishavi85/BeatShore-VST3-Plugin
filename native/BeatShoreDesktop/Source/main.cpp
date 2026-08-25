@@ -35,6 +35,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <sddl.h>
+#include "resource.h"
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -1569,7 +1570,19 @@ static int runTrayApp()
     g_trayIconData.uID = 1;
     g_trayIconData.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     g_trayIconData.uCallbackMessage = WM_BEATSHORE_TRAYICON;
-    g_trayIconData.hIcon = LoadIconA(nullptr, IDI_APPLICATION); // placeholder -- a real BeatShore icon resource is a small follow-up, not attempted here
+    // The real BeatShore icon, embedded as a resource (resources.rc,
+    // built from assets/icon/BeatShore.ico -- see
+    // assets/icon/generate_icon.py) -- not the generic system
+    // IDI_APPLICATION this used previously. Falls back to the system
+    // icon if the resource somehow fails to load (a corrupt/missing
+    // resource shouldn't take down the tray icon entirely), logged so a
+    // silent fallback isn't mistaken for success.
+    g_trayIconData.hIcon = LoadIconA(GetModuleHandleA(nullptr), MAKEINTRESOURCEA(IDI_APP_ICON));
+    if (g_trayIconData.hIcon == nullptr)
+    {
+        logLine("[desktop] WARNING: failed to load embedded BeatShore icon resource -- falling back to the generic system icon");
+        g_trayIconData.hIcon = LoadIconA(nullptr, IDI_APPLICATION);
+    }
     strncpy_s(g_trayIconData.szTip, "BeatShore Desktop", _TRUNCATE);
 
     if (!Shell_NotifyIconA(NIM_ADD, &g_trayIconData))

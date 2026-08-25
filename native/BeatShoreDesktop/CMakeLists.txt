@@ -6,6 +6,12 @@ project(BeatShoreDesktop)
 # so there's nothing JUCE would add here beyond compile time.
 add_executable(BeatShoreDesktop
     Source/main.cpp
+    # Embeds the real BeatShore icon (see assets/icon/generate_icon.py --
+    # derived from the actual brand logo, not a placeholder) into the exe
+    # itself, which is what Explorer/taskbar/Add-Remove-Programs actually
+    # show; the tray icon at runtime loads this same embedded resource by
+    # ID (main.cpp) rather than the generic system icon it used before.
+    Source/resources.rc
 )
 
 target_compile_features(BeatShoreDesktop PRIVATE cxx_std_17)

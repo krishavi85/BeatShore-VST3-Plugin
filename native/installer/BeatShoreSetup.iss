@@ -203,6 +203,14 @@ SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
+; The real BeatShore icon (derived from the actual brand logo -- see
+; assets/icon/generate_icon.py, not a placeholder) for the installer
+; .exe itself (Explorer, taskbar, the wizard's own title bar) --
+; distinct from UninstallDisplayIcon below, which controls what
+; Add/Remove Programs shows for the INSTALLED app and already gets the
+; same real icon for free once BeatShoreDesktop.exe has it embedded
+; (see native/BeatShoreDesktop/Source/resources.rc).
+SetupIconFile=..\..\assets\icon\BeatShore.ico
 UninstallDisplayIcon={app}\BeatShoreDesktop.exe
 
 [Languages]

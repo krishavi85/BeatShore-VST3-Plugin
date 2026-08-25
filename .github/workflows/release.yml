@@ -8,21 +8,20 @@
 # equivalents (ilammy/msvc-dev-cmd instead of a hardcoded local
 # vcvarsall.bat path, actions/setup-node instead of a locally-downloaded
 # Node zip, choco for CMake/Ninja/Inno Setup instead of assuming they're
-# already installed) rather than this machine's own specific paths, which
-# would not be portable to a CI runner at all. Treat the first real run
-# of this workflow as itself a verification step this project still
-# needs, not something to assume works because it's written down.
+# already installed). Treat the first real run of this workflow as itself
+# a verification step this project still needs, not something to assume
+# works because it's written down.
 #
-# What this workflow does NOT attempt:
-#   - Fetching the vendored JUCE and VST3 SDK sources into native/JUCE
-#     and native/vst3sdk (both .gitignored -- see the repo root
-#     .gitignore's own comment). This project's own history of how those
-#     were originally obtained in the local dev environment isn't
-#     recorded anywhere this workflow could read it back from, so the
-#     "checkout vendored SDKs" step below is a labeled TODO, not a
-#     guess at URLs that might be wrong. Fill in the real clone/download
-#     commands (matching the pinned versions in STATUS.md: JUCE 9.0.1,
-#     VST3 SDK 3.8.1) before this workflow can actually build anything.
+# Both TODOs from the first draft of this workflow are now filled in:
+#   - Fetching JUCE/VST3 SDK: pinned to the EXACT commits actually vendored
+#     and tested against all session (read directly from the local
+#     native/JUCE and native/vst3sdk .git directories, not guessed or
+#     re-derived from a version number) -- see the fetch step below.
+#   - build-release.ps1 no longer hardcodes a local vcvars64.bat/ISCC.exe
+#     path -- it auto-detects both via vswhere.exe and PATH/standard
+#     install locations, verified working locally after the change.
+#
+# What this workflow still does NOT attempt:
 #   - Code signing (needs a real certificate + secure secret storage --
 #     see the signing job below, which is written but will no-op without
 #     SIGNING_CERT_BASE64/SIGNING_CERT_PASSWORD secrets configured).
@@ -51,15 +50,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # TODO (unfilled, see the file-level comment above): fetch
-      # native/JUCE (JUCE 9.0.1) and native/vst3sdk (VST3 SDK 3.8.1)
-      # here -- e.g. via git clone --branch <tag> <upstream-url>, or a
-      # git submodule if this project adopts submodules later. Nothing
-      # below this step will actually compile without this filled in.
-      - name: Fetch vendored SDKs (JUCE, VST3 SDK) [UNFILLED]
+      # Pinned to the EXACT commits vendored and tested against all
+      # session, read directly from the local native/JUCE and
+      # native/vst3sdk .git directories (git log -1 --format=%H) rather
+      # than re-derived from "JUCE 9.0.1" as a version string, which
+      # JUCE doesn't tag at every commit -- this is the literal commit,
+      # not an approximation of it. VST3 SDK has its own submodules
+      # (base, cmake, pluginterfaces, public.sdk, vstgui4, etc.), hence
+      # --recurse-submodules.
+      - name: Fetch vendored SDKs (JUCE, VST3 SDK)
         run: |
-          Write-Host "TODO: clone JUCE 9.0.1 into native/JUCE and VST3 SDK 3.8.1 into native/vst3sdk here."
-          Write-Host "See native/BeatShoreBridge/STATUS.md for the pinned versions this project builds against."
+          git clone https://github.com/juce-framework/JUCE.git native/JUCE
+          git -C native/JUCE checkout 7aae7d8e8deb8413bb01633d2795ef9974a181c5
+
+          git clone --recurse-submodules https://github.com/steinbergmedia/vst3sdk.git native/vst3sdk
+          git -C native/vst3sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          git -C native/vst3sdk submodule update --init --recursive
 
       - name: Set up MSVC dev environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -75,14 +81,12 @@ jobs:
         run: |
           choco install ninja innosetup -y --no-progress
 
-      # build-release.ps1 hardcodes this machine's own local paths for
-      # vcvars64.bat and ISCC.exe (see its own $vcvars/$iscc variables) --
-      # both need to be parameterized (or resolved via vswhere / the PATH
-      # ilammy/msvc-dev-cmd and choco's Inno Setup install both already
-      # put things on) before this step will actually find either tool on
-      # a GitHub-hosted runner. Flagged here rather than silently
-      # papered over: this is real follow-up work, not done in this
-      # commit.
+      # build-release.ps1 auto-detects vcvars64.bat (via vswhere.exe) and
+      # ISCC.exe (via PATH, then standard install locations) rather than
+      # hardcoding a local machine's own paths -- verified locally after
+      # this change, not yet verified on an actual GitHub-hosted runner
+      # (this is exactly what running this workflow for the first time
+      # needs to confirm).
       - name: Run release build
         shell: pwsh
         run: |

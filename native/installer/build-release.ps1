@@ -72,6 +72,16 @@
 .PARAMETER CertThumbprint
   Certificate thumbprint to pass to signtool (see -SigntoolPath).
 
+.PARAMETER VcVarsPath
+  Explicit path to vcvars64.bat, overriding auto-detection via vswhere.exe.
+  Auto-detection finds any VS2017+ install with the C++ workload, on this
+  machine or a CI runner alike -- only needed if that picks the wrong one
+  among multiple side-by-side VS installs.
+
+.PARAMETER IsccPath
+  Explicit path to ISCC.exe (Inno Setup 6), overriding auto-detection (PATH,
+  then the standard Program Files / LOCALAPPDATA install locations).
+
 .EXAMPLE
   .\build-release.ps1
   Fast path: rebuild both binaries, restage, verify against staged tree,
@@ -85,7 +95,12 @@ param(
     [switch]$CleanEngine,
     [switch]$SkipInstallerCompile,
     [string]$SigntoolPath = "",
-    [string]$CertThumbprint = ""
+    [string]$CertThumbprint = "",
+    # Override auto-detection below if it picks the wrong VS install (e.g.
+    # multiple side-by-side versions) or Inno Setup isn't at a location
+    # vswhere/the standard install paths would find.
+    [string]$VcVarsPath = "",
+    [string]$IsccPath = ""
 )
 
 # NOT "Stop": this script drives many native .exe processes (ninja,
@@ -105,8 +120,47 @@ $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # native/install
 $native = Join-Path $root "native"
 $installer = Join-Path $native "installer"
 $stage = Join-Path $installer "stage"
-$vcvars = "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
-$iscc = "C:\Users\krish\AppData\Local\Programs\Inno Setup 6\ISCC.exe"
+
+# Auto-detected, not hardcoded to this machine's own local install paths --
+# a previous version of this script hardcoded a specific local VS2019
+# Build Tools path and a specific local Inno Setup install path, which
+# worked here but would silently fail to find either tool on any other
+# machine, including a CI runner. vswhere.exe is the tool Visual Studio
+# itself ships specifically so scripts don't have to guess an install
+# path -- present on every VS2017+ install (including GitHub-hosted
+# windows-latest runners), at this fixed location regardless of VS
+# version, even though vswhere itself usually isn't on PATH.
+function Find-VcVars64 {
+    if ($VcVarsPath) { return $VcVarsPath }
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $vsInstallPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if ($vsInstallPath) {
+            $candidate = Join-Path $vsInstallPath "VC\Auxiliary\Build\vcvars64.bat"
+            if (Test-Path $candidate) { return $candidate }
+        }
+    }
+    throw "Could not locate vcvars64.bat -- pass -VcVarsPath explicitly, or install the 'Desktop development with C++' workload."
+}
+
+function Find-Iscc {
+    if ($IsccPath) { return $IsccPath }
+    $onPath = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+    foreach ($candidate in @(
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+        "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+        "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+    )) {
+        if (Test-Path $candidate) { return $candidate }
+    }
+    throw "Could not locate ISCC.exe (Inno Setup 6) -- pass -IsccPath explicitly, or install Inno Setup (e.g. 'choco install innosetup')."
+}
+
+$vcvars = Find-VcVars64
+$iscc = Find-Iscc
+Write-Host "Using vcvars64.bat: $vcvars"
+Write-Host "Using ISCC.exe: $iscc"
 
 $report = [ordered]@{
     startedUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")

@@ -292,9 +292,15 @@ if (($validatorOut -join "`n") -notmatch "0 tests failed") { throw "Steinberg Va
 $report.steps["validator"] = @{ status = "ok" }
 
 # --- 3. Optional: rebuild the engine's node_modules from scratch -------
+# $engineDir is used both here and by the always-runs engine-staging
+# step below (3.5) -- defined unconditionally, not just inside this
+# -CleanEngine branch, which was a real bug in an earlier version of
+# this fix (the staging step would have failed on the common fast path
+# where -CleanEngine isn't passed, since $engineDir would never have
+# been set at all).
+$engineDir = Join-Path $native "BeatShoreDesktop\engine"
 if ($CleanEngine) {
     Write-Step "Rebuilding engine/node_modules from scratch (npm ci --omit=dev, Node 24)"
-    $engineDir = Join-Path $native "BeatShoreDesktop\engine"
     $node24 = Join-Path $installer "tools\node24"
     Push-Location $engineDir
     try {
@@ -306,6 +312,20 @@ if ($CleanEngine) {
         # to remove, not guessed at here.
         $tfjsDeps = Join-Path $engineDir "node_modules\@tensorflow\tfjs-node\deps"
         if (Test-Path $tfjsDeps) { Remove-Item -Recurse -Force $tfjsDeps -ErrorAction Stop }
+        # Same category as deps/ above -- node-gyp's own build-time
+        # MSBuild scaffolding (.tlog/.obj/.vcxproj files), never touched
+        # once the native addon is already compiled, and never trimmed
+        # before because this project's staging never actually copied
+        # the engine tree until this session (the manually-assembled
+        # stage\ this project used until now happened to have been built
+        # from an already-trimmed copy). Also has deeply nested, long
+        # filenames (MSBuild .tlog files carry a build-hash in their own
+        # name) that genuinely broke both robocopy and Inno Setup's
+        # compiler with Windows MAX_PATH errors once this WAS staged for
+        # the first time -- not a hypothetical, the actual failure this
+        # fix responds to.
+        $tfjsBuildTmp = Join-Path $engineDir "node_modules\@tensorflow\tfjs-node\build-tmp-napi-v8"
+        if (Test-Path $tfjsBuildTmp) { Remove-Item -Recurse -Force $tfjsBuildTmp -ErrorAction Stop }
         Get-ChildItem -Path (Join-Path $engineDir "node_modules") -Recurse -Filter "*.map" -File |
             Remove-Item -Force
         & (Join-Path $node24 "node.exe") "scripts\fix-tfjs-node-binding.js"
@@ -317,6 +337,110 @@ if ($CleanEngine) {
 else {
     $report.steps["clean_engine"] = @{ status = "skipped"; reason = "-CleanEngine not passed" }
 }
+
+# --- 3.5. Stage everything that ISN'T produced by compiling -------------
+# The real bug a live CI run found: this script restaged the two
+# COMPILED binaries but never actually staged anything else -- the EULA,
+# third-party license texts, the engine's JS source + node_modules, the
+# bundled Node.js runtime, and the VC++ redistributable were all sitting
+# in stage\ only because they'd been assembled there by hand across many
+# earlier sessions on this one machine. stage\ is entirely gitignored
+# (it's ~400MB of generated content), so none of that groundwork existed
+# on a genuinely fresh checkout -- this script was never actually
+# reproducible from scratch, it just happened to work here. Fixed in two
+# parts: real source-of-truth text content (the EULA, license notices)
+# moved into native/installer/assets/ and committed to git, copied from
+# there unconditionally every run (same principle as the binary restage
+# below); and the large, externally-sourced binaries (Node.js runtime,
+# VC++ redistributable) fetched fresh whenever they're not already
+# present, rather than assumed to pre-exist.
+Write-Step "Staging EULA and third-party license notices"
+$assets = Join-Path $installer "assets"
+Copy-Item -Path (Join-Path $assets "LicenseFile.txt") -Destination (Join-Path $stage "LicenseFile.txt") -Force -ErrorAction Stop
+$licensesDest = Join-Path $stage "Licenses"
+if (-not (Test-Path $licensesDest)) { New-Item -ItemType Directory -Path $licensesDest -Force | Out-Null }
+Copy-Item -Path (Join-Path $assets "Licenses\*") -Destination $licensesDest -Recurse -Force -ErrorAction Stop
+
+Write-Step "Staging the analysis engine (source + node_modules)"
+$engineStageRoot = Join-Path $stage "engine"
+$engineNestedDest = Join-Path $engineStageRoot "native\BeatShoreDesktop\engine"
+if (-not (Test-Path $engineNestedDest)) { New-Item -ItemType Directory -Path $engineNestedDest -Force | Out-Null }
+# Mirrors the dev tree's own nesting depth exactly -- analyze.js's own
+# unmodified `../../../beatshore-dsp.js` import (native/BeatShoreDesktop/
+# engine/analyze.js -> ../../../beatshore-dsp.js) only resolves correctly
+# if beatshore-dsp.js sits exactly three directories above wherever
+# analyze.js is staged. See STATUS.md's "Installer size" section for why
+# this nesting exists -- not incidental structure, a real constraint an
+# earlier naive "just copy engine/ into the installer" attempt failed
+# against.
+# /R:2 /W:2 -- a real bug in the first version of this fix: robocopy's
+# DEFAULT retry behavior (no /R or /W given) is up to 1,000,000 retries
+# with a 30-second wait between each for any file it can't copy on the
+# first try. One transiently locked or long-path file in an ~8,000-file
+# node_modules tree is enough to hang this step for a very long time --
+# confirmed directly: it genuinely hung on this exact call before this
+# fix, not a hypothetical concern.
+#
+# /XD napi-v10 -- a second real bug, found once the retry limit above
+# stopped the hang and surfaced the actual error: robocopy couldn't copy
+# tfjs-node's own lib/napi-v10/tensorflow.dll (ERROR 3, path not found --
+# almost certainly a broken/dangling artifact from npm's own install,
+# not anything this project created). This is already a known,
+# documented dead file, not a functional dependency: tfjs-node 4.22.0
+# doesn't ship a real prebuilt binding for N-API v10, only a symlink-ish
+# placeholder; the actual working binding this project uses is
+# lib/napi-v8/ (see fix-tfjs-node-binding.js's own comment). Excluding
+# it is correct, not a workaround for something that mattered --
+# confirmed by reproducing the exact failure directly, excluding just
+# this one directory, and getting a clean robocopy exit code
+# afterward.
+# build-tmp-napi-v8 excluded too here, not just in the -CleanEngine trim
+# above -- this runs regardless of whether -CleanEngine was passed (the
+# dev tree's node_modules might already exist from an earlier session,
+# from before this exclusion existed), so staging-time exclusion is the
+# one place that reliably catches it either way.
+robocopy $engineDir $engineNestedDest /E /R:2 /W:2 /XD napi-v10 /XD build-tmp-napi-v8 /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { throw "staging engine/ into stage\engine\native\BeatShoreDesktop\engine failed (robocopy exit $LASTEXITCODE)" }
+Copy-Item -Path (Join-Path $root "beatshore-dsp.js") -Destination (Join-Path $engineStageRoot "beatshore-dsp.js") -Force -ErrorAction Stop
+Copy-Item -Path (Join-Path $root "package.json") -Destination (Join-Path $engineStageRoot "package.json") -Force -ErrorAction Stop
+$vendorDest = Join-Path $engineStageRoot "vendor"
+if (Test-Path $vendorDest) { Remove-Item -Recurse -Force $vendorDest -ErrorAction Stop }
+Copy-Item -Path (Join-Path $root "vendor") -Destination $vendorDest -Recurse -Force -ErrorAction Stop
+
+Write-Step "Staging the bundled Node.js runtime and VC++ redistributable"
+$nodeDest = Join-Path $stage "node\node.exe"
+if (-not (Test-Path $nodeDest)) {
+    Write-Host "node.exe not already staged -- downloading Node 24.19.0 LTS (pinned, matching the engine's own dev toolchain)..."
+    $nodeZipUrl = "https://nodejs.org/dist/v24.19.0/node-v24.19.0-win-x64.zip"
+    $nodeZipPath = Join-Path $env:TEMP "beatshore-node-runtime.zip"
+    Invoke-WebRequest -Uri $nodeZipUrl -OutFile $nodeZipPath -ErrorAction Stop
+    $nodeExtractDir = Join-Path $env:TEMP "beatshore-node-runtime-extract"
+    if (Test-Path $nodeExtractDir) { Remove-Item -Recurse -Force $nodeExtractDir }
+    Expand-Archive -Path $nodeZipPath -DestinationPath $nodeExtractDir -Force
+    $nodeExeSrc = Get-ChildItem -Path $nodeExtractDir -Filter "node.exe" -Recurse | Select-Object -First 1
+    if (-not $nodeExeSrc) { throw "node.exe not found inside downloaded Node.js zip" }
+    New-Item -ItemType Directory -Path (Join-Path $stage "node") -Force | Out-Null
+    Copy-Item -Path $nodeExeSrc.FullName -Destination $nodeDest -Force -ErrorAction Stop
+    Remove-Item $nodeZipPath, $nodeExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+else { Write-Host "node.exe already staged, skipping download." }
+
+$vcRedistDest = Join-Path $stage "vc_redist.x64.exe"
+if (-not (Test-Path $vcRedistDest)) {
+    Write-Host "vc_redist.x64.exe not already staged -- downloading from Microsoft..."
+    Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $vcRedistDest -ErrorAction Stop
+    # Real verification, not "downloaded successfully so it must be
+    # fine" -- confirms this is genuinely Microsoft-signed before it
+    # ships inside the installer, matching the check already done by
+    # hand for every prior build (see RELEASE_MANIFEST.md).
+    $sig = Get-AuthenticodeSignature -FilePath $vcRedistDest
+    if ($sig.Status -ne "Valid" -or $sig.SignerCertificate.Subject -notmatch "Microsoft") {
+        Remove-Item $vcRedistDest -Force
+        throw "vc_redist.x64.exe failed Authenticode verification (status: $($sig.Status)) -- refusing to stage an unverified redistributable"
+    }
+    Write-Host "vc_redist.x64.exe Authenticode-verified: $($sig.SignerCertificate.Subject)"
+}
+else { Write-Host "vc_redist.x64.exe already staged, skipping download." }
 
 # --- 4. Restage, UNCONDITIONALLY -- this is the actual fix for the bug --
 # this session found: never trust that a previously-staged binary is

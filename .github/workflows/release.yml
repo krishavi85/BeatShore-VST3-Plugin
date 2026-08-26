@@ -33,12 +33,10 @@
 name: BeatShore Windows Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      cleanEngine:
-        description: "Run the full -CleanEngine path (npm ci from scratch)"
-        type: boolean
-        default: false
+  # No inputs -- every run on this runner always uses -CleanEngine (see
+  # the "Run release build" step below for why an optional flag doesn't
+  # make sense here the way it does for a local dev machine).
+  workflow_dispatch: {}
   push:
     tags:
       - "v*"
@@ -87,11 +85,19 @@ jobs:
       # this change, not yet verified on an actual GitHub-hosted runner
       # (this is exactly what running this workflow for the first time
       # needs to confirm).
+      # Always -CleanEngine here, unconditionally -- unlike a persistent
+      # local dev machine, a GitHub-hosted runner is ALWAYS a fresh
+      # checkout with no pre-existing node_modules, so "skip it, it's
+      # probably already there" (the point of making -CleanEngine
+      # optional locally) never applies in CI. The cleanEngine
+      # workflow_dispatch input doesn't even reach this step for a
+      # tag-push-triggered run (tag pushes have no `inputs` context at
+      # all), so gating on it here would have silently skipped the one
+      # thing a fresh checkout structurally requires.
       - name: Run release build
         shell: pwsh
         run: |
-          $cleanEngineFlag = if ("${{ inputs.cleanEngine }}" -eq "true") { "-CleanEngine" } else { "" }
-          & .\native\installer\build-release.ps1 @cleanEngineFlag
+          & .\native\installer\build-release.ps1 -CleanEngine
         # Non-zero exit (a failed build/test/compile step inside the
         # script) fails this job automatically -- build-release.ps1 is
         # designed to refuse to produce an installer from a tree that

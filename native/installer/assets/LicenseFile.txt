@@ -1,0 +1,117 @@
+BEATSHORE DESKTOP AND BEATSHORE BRIDGE VST3 PLUGIN
+END USER LICENSE AGREEMENT
+
+Last updated: 2026-08-24
+
+This End User License Agreement ("Agreement") is a legal agreement between
+you (either an individual or a single entity, "you" or "Licensee") and
+Singh's Innovation & Advisory ("Licensor", "we", "us", or "our") for the
+software product identified above, which includes the BeatShore Bridge
+VST3 plugin, the BeatShore Desktop background application, associated
+executable files, and any related documentation (collectively, the
+"Software").
+
+BY INSTALLING, COPYING, OR OTHERWISE USING THE SOFTWARE, YOU AGREE TO BE
+BOUND BY THE TERMS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT INSTALL
+OR USE THE SOFTWARE.
+
+1. LICENSE GRANT
+
+Subject to your compliance with this Agreement, Licensor grants you a
+non-exclusive, non-transferable, revocable license to install and use the
+Software, in object code (compiled) form only, on computers you own or
+control, for your own personal or professional audio production purposes.
+
+This license does not grant you any rights to the Software's source code.
+
+2. RESTRICTIONS
+
+You may not:
+  a) reverse engineer, decompile, or disassemble the Software, except to
+     the extent applicable law expressly permits this despite this
+     limitation;
+  b) redistribute, sell, lease, sublicense, or otherwise make the
+     Software available to third parties as a standalone product;
+  c) remove or alter any copyright, trademark, or other proprietary
+     notice contained in the Software;
+  d) use the Software for any unlawful purpose.
+
+3. OWNERSHIP
+
+The Software is licensed, not sold. Licensor and its licensors retain all
+right, title, and interest in and to the Software, including all
+intellectual property rights therein. This Agreement does not grant you
+any rights to trademarks or service marks of Licensor.
+
+4. THIRD-PARTY COMPONENTS
+
+The Software incorporates open-source and third-party components,
+each governed by its own license, not by this Agreement. The full text of
+each applicable third-party license is included in the Licenses\ folder
+installed alongside the Software (see Licenses\README.txt for the full
+list, which currently includes the Steinberg VST3 SDK, JUCE, Node.js,
+TensorFlow, and Basic Pitch). Nothing in this Agreement limits the rights
+granted to you under those third-party licenses.
+
+5. DATA COLLECTION AND PRIVACY
+
+The Software does not transmit your audio, MIDI exports, project data, or
+usage information to Licensor or to any third party. All audio processing,
+transcription, and file export performed by the Software happens locally
+on your own computer. The Software does not include telemetry, analytics,
+or crash-reporting functionality that sends data off your machine.
+
+If this changes in a future version, that version's release notes and an
+updated version of this Agreement will disclose it before you are asked to
+accept it.
+
+6. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. LICENSOR DOES NOT
+WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE, UNINTERRUPTED, OR THAT ANY
+DEFECTS WILL BE CORRECTED.
+
+7. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL
+LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,
+OR PUNITIVE DAMAGES, OR ANY LOSS OF DATA, PROFITS, OR GOODWILL, ARISING
+OUT OF OR RELATED TO YOUR USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF
+LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. LICENSOR'S
+TOTAL LIABILITY UNDER THIS AGREEMENT SHALL NOT EXCEED THE AMOUNT YOU PAID,
+IF ANY, FOR THE SOFTWARE.
+
+8. TERM AND TERMINATION
+
+This Agreement is effective until terminated. Your rights under this
+Agreement terminate automatically if you fail to comply with its terms.
+Upon termination, you must stop using the Software and uninstall it from
+your computer.
+
+9. GOVERNING LAW
+
+This Agreement is governed by the laws of Suriname, without regard to its
+conflict-of-law principles.
+
+10. CONTACT
+
+Questions about this Agreement, or requests related to your use of the
+Software, can be sent to: krishanavinash@gmail.com
+
+11. ENTIRE AGREEMENT
+
+This Agreement, together with the third-party license notices referenced
+in Section 4, constitutes the entire agreement between you and Licensor
+regarding the Software and supersedes any prior agreements or
+understandings, whether written or oral, regarding its subject matter.
+
+---
+This text was drafted to be a real, filled-in agreement rather than a
+placeholder, using standard proprietary-software EULA terms appropriate
+for a solo/small-team desktop application with no server-side data
+collection. It has not been reviewed by a licensed attorney. A
+professional legal review before a broad public release is still
+recommended, particularly if BeatShore's distribution scope, pricing
+model, or data handling changes from what's described in Section 5 above.

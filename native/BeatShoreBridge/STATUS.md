@@ -2085,6 +2085,60 @@ the next Actions run against `main` (no new tag needed --
 `workflow_dispatch` is already wired in) is what would actually confirm
 it.
 
+### Twelfth: the CI fix's own fix -- stage everything, not just binaries
+
+The `v0.2.0-rc4` tag push (Eleventh, above) got much further than either
+prior CI run: every build/validator/test step this document already
+verified locally now also passed on an actual GitHub-hosted runner, real
+proof the CMake-configure fix genuinely worked. It then failed restaging
+into `stage\`, which doesn't exist on a fresh checkout -- and that
+turned out to expose a real, much bigger gap than a missing directory:
+`stage\` held a large body of content (the EULA, third-party license
+notices, the engine's own staged copy, the bundled Node.js runtime, the
+VC++ redistributable) assembled by hand across many earlier sessions,
+never captured by the automation script or the repo, since `stage\` is
+entirely gitignored. This script was never actually reproducible from
+scratch -- it happened to work locally only because that groundwork
+already existed on this one machine.
+
+Fixed in full: real source-of-truth text content (EULA, license notices)
+moved into a new, git-tracked `native/installer/assets/`, copied from
+there into `stage\` unconditionally every run; a missing engine-staging
+step added (copies `native/BeatShoreDesktop/engine` into
+`stage\engine\` at the exact nested depth `analyze.js`'s own unmodified
+imports require -- see "Clean-machine packaging" above for why that
+nesting matters); the Node.js runtime and VC++ redistributable now
+fetched automatically when not already present. `.github/workflows/release.yml`'s
+`-CleanEngine` is now unconditional in CI, not gated behind a
+`workflow_dispatch` input that a tag push never even carries.
+
+**Two more real bugs, found by actually reproducing the failure locally,
+not guessed at**: robocopy's default retry behavior (no `/R`/`/W` given)
+is up to 1,000,000 retries with a 30-second wait each -- one problem
+file in an ~8,000-file `node_modules` tree hung this step for a very
+long time, confirmed directly (it genuinely hung, twice, before this was
+found). And two `tfjs-node` subdirectories -- `napi-v10` (a known-dead,
+non-functional artifact; the real binding is `napi-v8`) and
+`build-tmp-napi-v8` (node-gyp's own build-time MSBuild scaffolding, the
+same category as the already-trimmed `deps/`) -- broke both robocopy
+and Inno Setup's own compiler with Windows `MAX_PATH` errors once
+actually staged for the first time. Reproduced the exact failure
+directly (ran `robocopy` by hand outside the script, saw `ERROR 3`
+against `napi-v10\tensorflow.dll`; re-ran Inno Setup alone and watched
+it fail mid-compress inside `build-tmp-napi-v8`), confirmed excluding
+just these two directories produces a clean `robocopy` exit code and a
+successful Inno Setup compile, and added the same exclusion to the
+`-CleanEngine` trim for consistency with the already-established
+`deps/` removal.
+
+Verified locally end to end: full run exits 0, Validator 47/47, complete
+regression suite passed, installer compiles clean with zero warnings,
+`ProductVersionRaw` genuinely `0.2.0.4`. **Not yet confirmed on an
+actual fresh CI checkout** -- the Node.js/VC++-redistributable download
+branches specifically were never exercised locally either, since both
+were already staged here (only the "skip if already present" branch was
+tested) -- a real, honestly-flagged gap, not assumed to work.
+
 ### Second round: real blockers found by external review, fixed for real
 
 An external review of the first draft caught six genuine release blockers

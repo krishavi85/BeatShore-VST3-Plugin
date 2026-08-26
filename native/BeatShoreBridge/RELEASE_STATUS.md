@@ -156,10 +156,10 @@ report) in `RELEASE_MANIFEST.md`:
 |---|---|
 | Version | 0.2.0 |
 | Build ID | 20260825.1 (ProductVersion 0.2.0.4) |
-| Source commit | `b78d31e` (tag `v0.2.0-rc4`) |
+| Source commit | `bc62426` (untagged -- the "stage everything, not just binaries" fix on `main`, after `v0.2.0-rc4`) |
 | Installer filename | `BeatShoreSetup-0.2.0.exe` |
-| Installer SHA-256 | `83c5d6aebe19772f4d98f94d0c2d14e7714de4bf3867d6924845f609403d1a3d` |
-| Installer size | 98,838,475 bytes (~94.3MB) |
+| Installer SHA-256 | `5b260b55ed8e26ae8dce97be6a2f3e370740e67f77e31f19150ee39bc591f1e6` |
+| Installer size | 98,836,284 bytes (~94.3MB) |
 | `BeatShoreDesktop.exe` SHA-256 | `6da67873ef53af7efc05efe480926ab2a0cddead4fcb1f0f72a9476f9a8a7691` |
 | `BeatShore Bridge.vst3` SHA-256 | `28ca81e6efc1804044cd9d5c1572768c56052d3488f6f1098c5cae665ae153f7` |
 | Code-signed | No |

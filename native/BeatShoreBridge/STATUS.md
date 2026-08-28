@@ -2176,7 +2176,99 @@ correctness issue -- but real, and now recorded rather than
 unknowingly left as stray local state. Cleaned up manually as part of
 this session; not fixed in code.
 
-### Second round: real blockers found by external review, fixed for real
+### Fourteenth: the real fresh-checkout CI failure, found by an actual from-scratch local repro
+
+The `v0.2.0-rc6` tag push produced CI's first genuinely different result:
+not a fast ~100s failure like rc3-rc5, but a real 9.5-minute failure
+inside "Run release build" -- long enough to plausibly have gotten
+through the actual compiles. GitHub's job-log API returns 403 without an
+auth token (`gh` isn't available in this environment, confirmed again),
+and the only public annotation was the generic "Process completed with
+exit code 1." Rather than guess or wait on the user to paste a log,
+reproduced it directly: a genuine `git clone --branch v0.2.0-rc6` of this
+repo into an isolated short path (`C:\bsrepro`, chosen specifically to
+avoid CMAKE_OBJECT_PATH_MAX -- an early attempt in a long scratch-space
+path tripped that limit and was a false lead, not the real bug), with
+JUCE/vst3sdk copied in at the exact pinned commits CI itself checks out,
+then ran the unmodified `build-release.ps1 -CleanEngine` exactly as
+`release.yml` invokes it. A first pass also tripped over a stale
+`vst3sdk\build\CMakeCache.txt` copied in from this dev machine's own
+tree (pointing at the wrong source path) -- also a repro artifact, not
+the real bug, fixed by deleting that copied build dir.
+
+With those two false leads eliminated, the repro surfaced two real,
+previously-undiscovered script bugs, both invisible on this dev machine
+for the same underlying reason: local state silently standing in for
+steps the script itself never actually performed.
+
+1. **`-CleanEngine`'s `npm ci` hardcoded `native/installer/tools/node24/
+   {node.exe,npm.cmd}`** -- a path nothing in this script or in CI ever
+   creates. It only worked here because that directory had been staged
+   by hand at some point across earlier sessions and never captured in
+   git or reproduced by any automated step -- the same category of bug
+   as the stage\ directory fix from the previous round, just missed the
+   first time because -CleanEngine was never exercised against a
+   genuinely fresh checkout until now. Fixed with a `Find-Node24`
+   function matching the existing `Find-VcVars64`/`Find-Iscc`
+   auto-detection pattern: PATH first (which is exactly what CI's own
+   `actions/setup-node@v4` step populates -- its comment already said
+   "for build-release.ps1's own use, and for -CleanEngine", it just
+   wasn't actually being used that way), falling back to
+   `tools/node24` for compatibility with this dev machine's existing
+   local setup.
+
+2. **`stage\` itself was never created before the EULA `Copy-Item`
+   wrote into it.** Only ever worked here because stage\ already existed
+   from years of prior manual builds. Worse, empirically confirmed: the
+   resulting `Copy-Item` failure did NOT actually stop the script despite
+   `-ErrorAction Stop` -- under the `*>&1 | Tee-Object` pipeline this
+   whole script runs through, the would-be-terminating error just gets
+   written to the merged stream and execution silently continues. Same
+   for the `-CleanEngine` `npm ci`/node24 failure above: a genuine
+   `CommandNotFoundException` from `&` also didn't stop the script here,
+   for the same reason. The script limped forward for several more
+   Write-Step sections -- including successfully downloading the staged
+   Node runtime and vc_redist -- until "Validating staged directory
+   layout" finally caught the missing `LicenseFile.txt` and threw for
+   real, which is the actual exit-1 CI hit. Fixed at the root: create
+   `stage\` before the first thing that writes into it, rather than rely
+   on -ErrorAction Stop reliably propagating through this pipeline shape
+   (it doesn't, empirically, regardless of what the docs say it should
+   do).
+
+Both fixes applied, then verified by rerunning the exact same repro
+end to end: `clean_engine: ok` for a genuine `npm ci` (not silently
+skipped), "Staging EULA and third-party license notices" completed with
+no errors, "Validating staged directory layout" reported "All 9 required
+staged paths present" (previously "MISSING: LicenseFile.txt"), and
+critically, `--self-test` against the freshly-`npm ci`'d engine passed
+for real -- including actual Basic Pitch model load + inference, not
+just files existing -- followed by the full staged regression suite
+(tempo, transcribePolyphonic, MultiSessionTest) all passing, and a clean
+Inno Setup compile producing a 98.9MB installer with `clean_engine`,
+`layout_validation`, `staged_self_test`, and `staged_regression_suite`
+all reporting `ok` in release-report.json. One incidental, non-fatal
+finding along the way: `fix-tfjs-node-binding.js` reported "expected DLL
+not found... tfjs-node package layout may have changed; skipping" against
+a genuinely fresh `npm ci` install -- the script already treats this as
+a soft warning, and the subsequent self-test's real Basic Pitch inference
+passing confirms the binding works fine without that particular repair
+step on a fresh install. Not investigated further; recorded here as a
+real observation, not chased down since nothing was actually broken.
+
+This is the most thorough verification this project's release tooling
+has had: a real, isolated, from-scratch checkout at the exact commit CI
+built, run through the unmodified production script, with both
+structural bugs found and fixed by direct empirical reproduction rather
+than guesswork. **Still not the same as an actual GitHub-hosted
+`windows-latest` runner** -- this dev machine has VS2019 Build Tools
+(CI likely has VS2022) and Node 25.9.0 on PATH (CI's `actions/setup-node`
+pins exactly Node 24) -- so the next real tag push is still the final
+confirmation, not a formality. Both bugs found were structural
+(hardcoded paths, missing directory creation) rather than
+toolchain-version-dependent, so there's good reason to expect this
+holds, but "good reason to expect" is not "confirmed on CI," and won't
+be asserted as such until a real run says so.
 
 An external review of the first draft caught six genuine release blockers
 and a long list of real script issues, none of which had been caught by

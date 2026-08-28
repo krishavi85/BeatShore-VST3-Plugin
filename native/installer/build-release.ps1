@@ -50,8 +50,9 @@
 
 .PARAMETER CleanEngine
   Also rebuild native/BeatShoreDesktop/engine/node_modules from scratch
-  (npm ci --omit=dev using the pinned Node 24 toolchain in
-  native/installer/tools/node24) and re-apply the verified tfjs-node trim
+  (npm ci --omit=dev using Node 24, auto-detected from PATH or
+  native/installer/tools/node24 -- see Find-Node24) and re-apply the
+  verified tfjs-node trim
   (deps/, build-tmp-napi-v8/, source maps) before restaging. Slow (several
   minutes). Only needed when engine dependencies themselves changed.
 
@@ -155,6 +156,34 @@ function Find-Iscc {
         if (Test-Path $candidate) { return $candidate }
     }
     throw "Could not locate ISCC.exe (Inno Setup 6) -- pass -IsccPath explicitly, or install Inno Setup (e.g. 'choco install innosetup')."
+}
+
+# Auto-detected the same way as Find-VcVars64/Find-Iscc above -- this was
+# a real, previously-undiscovered bug: the -CleanEngine block below used
+# to hardcode native/installer/tools/node24/{node.exe,npm.cmd}, a path
+# nothing in this script or in CI ever creates. It only ever worked on
+# this dev machine because that directory had been staged there by hand
+# at some point and never captured in git or reproduced by any automated
+# step -- exactly the same class of bug as the stage/ directory fix
+# earlier in this file, just missed the first time because -CleanEngine
+# wasn't exercised against a genuinely fresh checkout until now. CI's own
+# workflow already puts a matching Node 24 on PATH via actions/setup-node
+# (see the "Set up Node 24" step's own comment: "for build-release.ps1's
+# own use, and for -CleanEngine") specifically so this resolves there;
+# the tools\node24 fallback keeps working for this dev machine's existing
+# local setup without requiring it to change anything.
+function Find-Node24 {
+    $onPath = Get-Command node.exe -ErrorAction SilentlyContinue
+    if ($onPath) {
+        $nodeDir = Split-Path -Parent $onPath.Source
+        $npmCmd = Join-Path $nodeDir "npm.cmd"
+        if (Test-Path $npmCmd) { return $nodeDir }
+    }
+    $candidate = Join-Path $installer "tools\node24"
+    if ((Test-Path (Join-Path $candidate "node.exe")) -and (Test-Path (Join-Path $candidate "npm.cmd"))) {
+        return $candidate
+    }
+    throw "Could not locate a Node.js install (need node.exe + npm.cmd) for -CleanEngine -- install Node 24 and ensure it's on PATH, or place it at native/installer/tools/node24."
 }
 
 $vcvars = Find-VcVars64
@@ -301,7 +330,8 @@ $report.steps["validator"] = @{ status = "ok" }
 $engineDir = Join-Path $native "BeatShoreDesktop\engine"
 if ($CleanEngine) {
     Write-Step "Rebuilding engine/node_modules from scratch (npm ci --omit=dev, Node 24)"
-    $node24 = Join-Path $installer "tools\node24"
+    $node24 = Find-Node24
+    Write-Host "Using Node 24 from: $node24"
     Push-Location $engineDir
     try {
         & (Join-Path $node24 "npm.cmd") ci --omit=dev
@@ -355,6 +385,19 @@ else {
 # VC++ redistributable) fetched fresh whenever they're not already
 # present, rather than assumed to pre-exist.
 Write-Step "Staging EULA and third-party license notices"
+# $stage itself was never created before this point on a genuinely fresh
+# checkout -- real bug found via a from-scratch repro (see STATUS.md):
+# it only ever worked on this dev machine because stage\ already existed
+# from years of prior manual builds. Worse, the Copy-Item below failing
+# with a missing destination directory did NOT actually stop the script
+# here despite -ErrorAction Stop -- empirically confirmed: under the
+# `*>&1 | Tee-Object` pipeline this whole script runs through, that
+# would-be-terminating error just gets written to the merged stream and
+# execution silently continues, all the way until "Validating staged
+# directory layout" catches the missing LicenseFile.txt and throws for
+# real. Rather than rely on that fragile behavior, ensure the actual
+# precondition (stage\ exists) holds before the copy needs it.
+if (-not (Test-Path $stage)) { New-Item -ItemType Directory -Path $stage -Force | Out-Null }
 $assets = Join-Path $installer "assets"
 Copy-Item -Path (Join-Path $assets "LicenseFile.txt") -Destination (Join-Path $stage "LicenseFile.txt") -Force -ErrorAction Stop
 $licensesDest = Join-Path $stage "Licenses"

@@ -122,18 +122,25 @@ static void runQueueMode(int sessions, int perSession)
 {
     std::atomic<int> accepted{ 0 };
     std::atomic<int> queueFull{ 0 };
+    std::atomic<int> serverBusy{ 0 };
     std::atomic<int> otherError{ 0 };
     std::atomic<int> connectFailed{ 0 };
     std::vector<std::thread> threads;
 
-    // kMaxCaptureSeconds (60s), the absolute maximum this desktop
-    // accepts -- even 10s of audio (~500ms/request) still drained faster
-    // than 32 requests could build past kMaxGlobalQueueDepth=24. At the
-    // real ceiling, each request takes several seconds, giving the
-    // queue an actual chance to build up before the single worker drains
-    // it.
-    const uint32_t sampleRate = 22050, channels = 1, frames = 22050 * 60; // 60s
-    std::vector<float> samples(frames, 0.01f);
+    // kMaxSampleRateHz (192000) x kMaxCaptureSeconds (60s) x
+    // kMaxAudioChannels (2, stereo) -- the actual maximum single-request
+    // size this desktop accepts, ~92MB (matches kMaxTotalReservedAudioBytes's
+    // own comment in main.cpp exactly). A previous version of this test
+    // used 22050Hz mono (~5.3MB/request) specifically to probe
+    // kMaxGlobalQueueDepth -- deliberately NOT big enough to meaningfully
+    // test kMaxTotalReservedAudioBytes (512MB), since even 32 of those
+    // buffers only total ~170MB. At the real per-request maximum, only
+    // ~6 concurrently-admitted requests are needed to exceed 512MB,
+    // comfortably within kMaxConcurrentSessions x kMaxActiveJobsPerSession's
+    // own ceiling (32) -- this run targets that budget specifically, not
+    // queue depth.
+    const uint32_t sampleRate = 192000, channels = 2, frames = 192000u * 60u; // 60s stereo @ 192kHz
+    std::vector<float> samples(size_t(frames) * channels, 0.01f);
 
     // Two-phase, not "connect, prep, and send in one pass" -- the first
     // attempt at this test genuinely admitted every request with zero
@@ -173,10 +180,13 @@ static void runQueueMode(int sessions, int perSession)
                 Value req = Value::object();
                 req.set("type", "ANALYSIS_REQUEST");
                 req.set("requestId", genRequestId(s, i));
-                req.set("kind", "transcribePolyphonic"); // slower than tempo -- needed to actually build real queue
-                                                          // depth before the single worker drains it (tempo drains
-                                                          // too fast to ever build a real backlog, confirmed
-                                                          // empirically)
+                req.set("kind", "tempo"); // For the memory-budget probe specifically, "tempo" is deliberately
+                                          // used instead of transcribePolyphonic -- kMaxTotalReservedAudioBytes is
+                                          // checked at ADMISSION time, before Node ever sees the request, so the
+                                          // analysis kind doesn't affect whether SERVER_BUSY fires; using the fast
+                                          // kind avoids waiting on real TF inference for something this specific
+                                          // test doesn't need. (A separate queue-depth probe still uses
+                                          // transcribePolyphonic deliberately -- see the git history of this file.)
                 req.set("audioSource", "file");
                 Value audio = Value::object();
                 audio.set("shm", shmName);
@@ -232,6 +242,7 @@ static void runQueueMode(int sessions, int perSession)
                 if (type == "ANALYSIS_RESULT" || type == "MIDI_RESULT") { accepted++; continue; }
                 std::string code = msg.has("errorCode") ? msg["errorCode"].asString() : "";
                 if (code == "QUEUE_FULL") queueFull++;
+                else if (code == "SERVER_BUSY") serverBusy++;
                 else otherError++;
             }
 
@@ -248,6 +259,7 @@ static void runQueueMode(int sessions, int perSession)
         + std::to_string(sessions) + " sessions x " + std::to_string(perSession) + " each)");
     log("[boundary] accepted=" + std::to_string(accepted.load())
         + " QUEUE_FULL=" + std::to_string(queueFull.load())
+        + " SERVER_BUSY=" + std::to_string(serverBusy.load())
         + " otherError=" + std::to_string(otherError.load())
         + " connectFailed=" + std::to_string(connectFailed.load()));
 }

@@ -2139,6 +2139,43 @@ branches specifically were never exercised locally either, since both
 were already staged here (only the "skip if already present" branch was
 tested) -- a real, honestly-flagged gap, not assumed to work.
 
+### Thirteenth: the 512MB memory budget verified for real, and a real orphaned-temp-file gap
+
+A follow-up review asked to keep pushing on the still-unverified
+resource-limit boundaries. Recalculating rather than re-guessing: the
+`LoadBoundaryTest` runs so far had all used small audio (0.2s-60s at
+22050Hz mono, ~0.2-5.3MB per request) specifically to probe
+`kMaxGlobalQueueDepth` -- deliberately not big enough to meaningfully
+stress `kMaxTotalReservedAudioBytes` (512MB), since even 32 such
+buffers only total ~170MB. Switching to the actual per-request maximum
+(`kMaxSampleRateHz` x `kMaxCaptureSeconds` x `kMaxAudioChannels` =
+192kHz stereo, 60s, ~92MB -- matching `main.cpp`'s own comment on that
+constant exactly) changes the math completely: only ~6 concurrently-
+admitted requests are needed to exceed 512MB.
+
+**Genuinely triggered for the first time**: 8 real sessions, each
+submitting one ~92MB request, released via the same barrier-synchronized
+burst technique as the session-cap test -- `accepted=5 SERVER_BUSY=3`
+(5 x 92MB ≈ 460MB fit under the budget; the 6th tipped it over),
+matching the desktop's own log exactly (3 real `REJECTED
+ANALYSIS_REQUEST ... (SERVER_BUSY)` lines). `kMaxConcurrentSessions` and
+the memory budget are now both empirically verified; only
+`kMaxGlobalQueueDepth` remains unreached, for the same architectural
+reason already documented in "Tenth" above.
+
+**A genuine, minor gap found in passing, not previously confirmed**:
+checking the OS temp directory for leftover files from this test
+surfaced ~95 orphaned `bsr_*.bsmraw` files dated two days earlier --
+none from this run (confirmed via clean completion and matching
+request/response counts), all from earlier sessions where the desktop
+was killed via `taskkill` mid-request (which this project's own testing
+has done many times). There is no "clean up orphaned temp files on
+startup" sweep today. Low severity -- the OS's own temp-directory
+housekeeping eventually reclaims this, and it's not a security or
+correctness issue -- but real, and now recorded rather than
+unknowingly left as stray local state. Cleaned up manually as part of
+this session; not fixed in code.
+
 ### Second round: real blockers found by external review, fixed for real
 
 An external review of the first draft caught six genuine release blockers

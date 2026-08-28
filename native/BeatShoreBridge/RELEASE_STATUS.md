@@ -58,12 +58,14 @@ Last updated 2026-08-25.
   limitations" below) but not yet confirmed against a real fresh CI run.
 - A real held-open-connection load test
   (`native/BridgeClientTest/Source/load_boundary_test.cpp`,
-  `LoadBoundaryTest.exe`) genuinely triggered the `kMaxConcurrentSessions`
-  rejection for the first time: 25 near-simultaneous connections → 17
-  connected / 8 rejected, matching the desktop's own log exactly. The
-  `kMaxGlobalQueueDepth=24` rejection was **not** reached despite real,
-  escalating effort (three audio durations, a barrier-synchronized
-  burst) — see "Current limitations" below.
+  `LoadBoundaryTest.exe`) genuinely triggered **two of the three**
+  resource-limit rejections for the first time: `kMaxConcurrentSessions`
+  (25 near-simultaneous connections → 17 connected / 8 rejected) and the
+  512MB audio-memory budget (8 sessions × one 92MB request each →
+  5 accepted / 3 rejected with `SERVER_BUSY`) — both matching the
+  desktop's own log exactly. `kMaxGlobalQueueDepth=24` was **not**
+  reached despite real, escalating effort (three audio durations, a
+  barrier-synchronized burst) — see "Current limitations" below.
 - Four failure modes verified empirically against the **installed**
   build (`native/installer/stage`'s own `BeatShoreDesktop.exe`, not the
   dev tree): a corrupted Basic Pitch model file, a genuinely missing
@@ -116,22 +118,35 @@ Last updated 2026-08-25.
   model), no persistent per-identity ban list, and the elevated-desktop/
   non-elevated-DAW mandatory-integrity-control scenario is unverified
   (standing guidance: don't run `BeatShoreDesktop.exe` elevated).
-- **`kMaxConcurrentSessions=16` is now genuinely verified** (see above)
-  **but `kMaxGlobalQueueDepth=24` and the 512MB audio-memory budget still
-  are not**, despite real, escalating attempts with a purpose-built
-  held-open-connection test client (`LoadBoundaryTest.exe`): three audio
-  durations (0.2s/10s/60s, to slow individual requests down) and both a
-  naive and a barrier-synchronized simultaneous burst, up to 32 real
-  concurrent requests (the maximum `kMaxConcurrentSessions ×
-  kMaxActiveJobsPerSession` allows) — all accepted, zero `QUEUE_FULL`
-  every time. Working hypothesis, not confirmed: `kMaxConcurrentSessions`
-  combined with each session's own strictly sequential per-connection
-  message processing may genuinely bound real-world queue depth below 24
-  regardless of load pattern. The rejection logic itself reads correctly
-  and is structurally identical to the already-tested `RATE_LIMITED`
-  check; confirming it fires under real conditions would need
-  instrumenting the desktop's own live queue depth, not attempted since
-  that means modifying production code purely to observe a test.
+- **`kMaxConcurrentSessions=16` and the 512MB audio-memory budget are now
+  both genuinely verified. `kMaxGlobalQueueDepth=24` still is not.**
+  The memory budget: 8 real concurrent sessions each submitting a
+  single request at the actual per-request maximum size (192kHz stereo,
+  60s, ~92MB) produced `accepted=5 SERVER_BUSY=3` — 5 × 92MB ≈ 460MB fit
+  under the 512MB ceiling, the 6th correctly tipped it over, matching
+  the desktop's own log exactly (3 real `SERVER_BUSY` rejections). Queue
+  depth: despite real, escalating attempts with the same purpose-built
+  held-open-connection test client (`LoadBoundaryTest.exe`) — three
+  audio durations (0.2s/10s/60s) and both a naive and a
+  barrier-synchronized simultaneous burst, up to 32 real concurrent
+  requests (the maximum `kMaxConcurrentSessions × kMaxActiveJobsPerSession`
+  allows) — every attempt was accepted, zero `QUEUE_FULL`. Working
+  hypothesis, not confirmed: `kMaxConcurrentSessions` combined with each
+  session's own strictly sequential per-connection message processing
+  may genuinely bound real-world queue depth below 24 regardless of
+  load pattern. The rejection logic itself reads correctly and is
+  structurally identical to the two now-verified checks; confirming it
+  fires under real conditions would need instrumenting the desktop's
+  own live queue depth, not attempted since that means modifying
+  production code purely to observe a test.
+- **A genuine, minor gap found along the way, not previously
+  confirmed**: temp audio files from sessions killed mid-request
+  (`taskkill`, matching how this project's own testing has repeatedly
+  terminated the desktop) are not cleaned up — found ~95 orphaned
+  `bsr_*.bsmraw` files in the OS temp directory dating back to earlier
+  test runs, none from normal completion. Low severity (the OS's own
+  temp-directory housekeeping eventually reclaims this), but real: there
+  is no "clean up orphaned temp files on startup" sweep today.
 - **CI now runs (Actions were enabled on the GitHub side between
   sessions) but both real runs so far have failed**, in the
   ~80-110-second range — too fast to be a real compile failure. Root
@@ -198,13 +213,17 @@ tracked in this table.
    unverified — don't run `BeatShoreDesktop.exe` elevated.
 4. No code signing — expect SmartScreen warnings on a real install.
 5. Only one Node worker — see "Deferred decisions" below.
-6. Memory-budget and job-queue-depth *rejection* boundaries not yet
-   reached under real load, despite real, escalating attempts — see
-   "Current limitations" (`kMaxConcurrentSessions` itself **is** now
-   verified).
-7. CI workflow has zero runs even after a real trigger — likely needs
-   Actions manually enabled on the GitHub side, not diagnosable further
-   from here.
+6. Job-queue-depth *rejection* (`kMaxGlobalQueueDepth=24`) still not
+   reached under real load despite real, escalating attempts — see
+   "Current limitations" (`kMaxConcurrentSessions` and the 512MB memory
+   budget **are** now both verified).
+7. CI now runs (Actions were enabled), but every run so far has failed
+   — most recently on a real, root-caused staging gap (fixed, commit
+   `bc62426`); that fix's own first real CI run is in progress as of
+   this writing, not yet confirmed passing.
+8. Temp files from a session killed mid-request aren't cleaned up on
+   the next startup (low severity, but real — see "Current
+   limitations").
 
 ## Deferred decisions
 
@@ -245,11 +264,12 @@ they need real hardware, a certificate, or a human.
       playback/passthrough under load)
 - [ ] Remaining failure/recovery behavior on an installed build: full
       disk (not safely simulable here), long-running cancellation during
-      an actual DAW session, DAW closes mid-analysis, and the
-      memory-budget/session/queue-depth *rejection* boundaries under
-      real sustained load (needs a held-open-connection test client —
-      the 40-session real-load burst already run didn't reach them; see
-      "Current limitations"). Desktop-unavailable, Node-crash,
+      an actual DAW session, DAW closes mid-analysis, orphaned-temp-file
+      cleanup on startup after a killed session, and the
+      `kMaxGlobalQueueDepth` *rejection* boundary under real sustained
+      load (needs a test client that can hold genuine queue depth —
+      see "Current limitations"; the session-cap and 512MB memory-budget
+      boundaries **are** now verified). Desktop-unavailable, Node-crash,
       oversized/malformed messages, missing/corrupted model files, and
       unwritable MIDI destination are already tested — see "Current
       verified capabilities"

@@ -217,10 +217,15 @@ tracked in this table.
    reached under real load despite real, escalating attempts — see
    "Current limitations" (`kMaxConcurrentSessions` and the 512MB memory
    budget **are** now both verified).
-7. CI now runs (Actions were enabled), but every run so far has failed
-   — most recently on a real, root-caused staging gap (fixed, commit
-   `bc62426`); that fix's own first real CI run is in progress as of
-   this writing, not yet confirmed passing.
+7. ~~CI has never passed~~ Fixed and confirmed: `v0.2.0-rc7` (commit
+   `817b4bf`) is the first genuinely passing run on a real GitHub-hosted
+   `windows-latest` runner — full build, Validator 51/51, staged
+   self-test (real Basic Pitch inference), full regression suite, and a
+   clean Inno Setup compile, all green. Two real bugs found via an
+   actual from-scratch local repro and fixed: `-CleanEngine`'s `npm ci`
+   hardcoded a path nothing ever populated, and `stage\` itself was
+   never created before the EULA file was copied into it. See
+   STATUS.md's "Fourteenth" section for the full writeup.
 8. Temp files from a session killed mid-request aren't cleaned up on
    the next startup (low severity, but real — see "Current
    limitations").

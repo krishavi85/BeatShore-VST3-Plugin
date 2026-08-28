@@ -2270,6 +2270,19 @@ toolchain-version-dependent, so there's good reason to expect this
 holds, but "good reason to expect" is not "confirmed on CI," and won't
 be asserted as such until a real run says so.
 
+**Update: confirmed.** Pushed as `v0.2.0-rc7` (commit `817b4bf`) and
+watched the real run to completion on GitHub's own `windows-latest`
+runner (run id `33168764375`): every step green, "Run release build"
+completed in 15m4s (11:53:56Z-12:09:00Z, entirely plausible next to the
+~25min local repro given real network-bound `npm ci` and a shared
+runner), installer artifact uploaded, overall run `status: completed,
+conclusion: success`. This is the first genuinely passing CI run this
+project has ever had. The `sign` job (needs `SIGNING_CERT_BASE64`/
+`SIGNING_CERT_PASSWORD` secrets, neither configured) still leaves the
+artifact unsigned, exactly as designed -- that remains a real, separate,
+still-open item (see the release acceptance checklist), not something
+this fix touched or claims to have addressed.
+
 An external review of the first draft caught six genuine release blockers
 and a long list of real script issues, none of which had been caught by
 this project's own testing (which had focused on "does the staged engine

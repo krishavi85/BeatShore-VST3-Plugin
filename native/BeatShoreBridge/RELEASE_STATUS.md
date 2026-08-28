@@ -105,10 +105,12 @@ Last updated 2026-08-25.
   correctly share and queue behind it, but there's no genuine parallel
   inference throughput. See "Deferred decisions" below for why this
   isn't being changed yet.
-- **Untested on other DAWs** (Cubase, Ableton Live, FL Studio, Studio
-  One) and **no macOS/Logic Pro support** (would need a separate AU
-  build and macOS desktop broker — a platform milestone, not a packaging
-  task).
+- **Untested on other Windows DAWs** (Cubase, Ableton Live, FL Studio,
+  Studio One). macOS/Logic Pro is intentionally out of scope for this
+  product — a separate platform milestone (its own AU build, macOS
+  desktop broker, Apple signing/notarization), not a gap in the Windows
+  release this document tracks. Not listed as a limitation below for
+  that reason.
 - **Named-pipe hardening is scoped to same-user, local threats.** No
   cross-user or network-attacker defenses (not this project's threat
   model), no persistent per-identity ban list, and the elevated-desktop/
@@ -172,6 +174,10 @@ compiles of identical source — see `RELEASE_MANIFEST.md`).
 
 ## Supported hosts
 
+Windows VST3 only — this is the current product's actual scope, not a
+limitation of it. macOS/Logic Pro is a separate platform milestone, not
+tracked in this table.
+
 | DAW | Status |
 |---|---|
 | Steinberg Validator | 47/47 |
@@ -180,7 +186,6 @@ compiles of identical source — see `RELEASE_MANIFEST.md`).
 | Ableton Live | Untested |
 | FL Studio | Untested |
 | Studio One | Untested |
-| Logic Pro | Not supported (Windows-only build; would need a separate AU/macOS milestone) |
 
 ## Known issues
 

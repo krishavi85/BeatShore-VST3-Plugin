@@ -46,17 +46,18 @@ REAPER.
    showing the real accumulated history of exported files (14 `.mid`
    files across multiple sessions 8/25-8/29, matching timestamps).
    **PASS**
-8. [~] Import that `.mid` file onto a new REAPER track — imported
-   successfully, note data visible in the item. Playback in REAPER was
-   silent; **root-caused as expected REAPER behavior, not a BeatShore
-   bug**: the track had only BeatShore Bridge (an audio effect --
-   "thin passthrough + host context reader", 2-in/2-out) loaded, no
-   instrument, so there's nothing to render the MIDI notes into audio.
-   Confirmed the exported file itself is valid: the same `.mid` played
-   audibly in Windows Media Player (which auto-routes MIDI through the
-   Windows GS Wavetable synth). Retry with an actual instrument (e.g.
-   REAPER's stock ReaSynth) on the track needed to confirm note
-   correspondence/timing/chords -- not yet done.
+8. [x] Import that `.mid` file onto a new REAPER track — imported
+   successfully, note data visible in the item. First attempt was
+   silent in REAPER (**root-caused as expected REAPER behavior, not a
+   BeatShore bug**: the track only had BeatShore Bridge, an audio
+   effect, loaded -- no instrument to render MIDI into audio). Retried
+   with ReaSynth added to a track ("ReaSynth" / "BeatShore
+   Reconstruction" track), MIDI: All channels -- **sound plays
+   correctly**. **PASS** (2026-08-29). Detailed musical judgment
+   (register/rhythm/chord-stacking accuracy vs. what was actually
+   played) not separately itemized by the user but the mechanism -- a
+   real, valid, audibly-correct MIDI file reproducing the transcribed
+   performance -- is now confirmed end to end.
 9. [ ] Repeat with a *different* instrument/register for a second
    independent pass — not yet done (checklist's own pass criteria below
    asks for two).

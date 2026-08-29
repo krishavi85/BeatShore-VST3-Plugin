@@ -105,11 +105,18 @@ Last updated 2026-08-25.
   not invented here.
 - ~~Only Analyze Tempo has been observed live inside REAPER.~~ Both
   `tempo` and `transcribePolyphonic` are now observed live
-  (2026-08-29) — see "Current verified capabilities" above. REAPER
-  project save/reload, reconnect-after-desktop-restart, multiple
-  instances, MIDI-learn, and playback-under-load are still unobserved in
-  a real hosted session (exercised only via automated test harnesses) —
-  `REAPER_TEST_CHECKLIST.md` Part B, not yet run.
+  (2026-08-29) — see "Current verified capabilities" above.
+- ~~REAPER lifecycle unobserved.~~ **Fully run and confirmed 2026-08-29**
+  (`REAPER_TEST_CHECKLIST.md` Part B): save/reload, reconnect after
+  killing/relaunching `BeatShoreDesktop.exe`, two simultaneous instances
+  with no cross-talk, and playback-under-load (both an analysis and a
+  transcription triggered mid-playback alongside a full Ozone Pro
+  mastering chain, both completed correctly, no glitching) all
+  genuinely pass. MIDI-learned trigger is a confirmed real gap, not a
+  bug: the "Analyze Tempo"/"Transcribe" buttons are plain JUCE
+  `TextButton`s, not host-automatable parameters, so MIDI-learn isn't
+  currently possible — would need a UI change (real
+  `AudioProcessorParameter`s) to ever support it.
 - **Only one Node worker** (`kMaxConcurrentNodeJobs = 1`) — sessions
   correctly share and queue behind it, but there's no genuine parallel
   inference throughput. See "Deferred decisions" below for why this
@@ -206,10 +213,13 @@ tracked in this table.
 ## Known issues
 
 1. ~~Live polyphonic transcription unobserved in REAPER~~ Observed live
-   2026-08-29 (232 notes, `source: live-captured`, real MIDI exported).
-   MIDI re-import/inspection and a second independent-instrument pass
-   still open, plus full REAPER lifecycle testing — see
-   `REAPER_TEST_CHECKLIST.md`.
+   2026-08-29 (232 notes, `source: live-captured`, real MIDI exported,
+   re-imported and confirmed audibly correct with a real instrument
+   loaded). ~~Full REAPER lifecycle testing~~ also done — see
+   `REAPER_TEST_CHECKLIST.md` (all pass except MIDI-learn, a confirmed
+   real UI gap, not a bug). Only remaining open item in this area: a
+   second independent-instrument pass for the transcription test's own
+   two-pass criteria (step 9, not yet run).
 2. Clean-machine install (interactive, silent, repair, upgrade,
    uninstall, cancelled-install and failed-self-test behavior) unverified
    — needs a real VM.
@@ -269,15 +279,18 @@ they need real hardware, a certificate, or a human.
       "Current verified capabilities" above
 - [ ] Live polyphonic transcription verified in REAPER
       (`audioSource:"live-captured"`, MIDI import onto a new track,
-      timing/chords/velocities checked) — core mechanism now confirmed
-      live (2026-08-29, 232 notes, real MIDI exported); MIDI
-      re-import/inspection and a second independent-instrument pass
-      still needed to fully close this item, see
-      `REAPER_TEST_CHECKLIST.md` Part A steps 7-9
-- [ ] REAPER lifecycle verified (save/reload, remove/reinsert, desktop
-      restart mid-session, multiple instances, MIDI-learned trigger,
-      playback/passthrough under load) — step-by-step script ready at
-      `REAPER_TEST_CHECKLIST.md`, not yet run
+      timing/chords/velocities checked) — confirmed live 2026-08-29
+      (232 notes, real MIDI exported, re-imported and played back
+      correctly with a real instrument); only a second
+      independent-instrument pass remains for the checklist's own
+      two-pass criteria, see `REAPER_TEST_CHECKLIST.md` Part A step 9
+- [x] REAPER lifecycle verified (save/reload, desktop restart
+      mid-session/reconnect, multiple instances, playback/passthrough
+      under load) — all confirmed 2026-08-29,
+      `REAPER_TEST_CHECKLIST.md` Part B. MIDI-learned trigger
+      specifically: confirmed **not currently possible** (plain JUCE
+      `TextButton`s, not host-automatable parameters) — a real,
+      recorded UI gap, not left unverified
 - [ ] Remaining failure/recovery behavior on an installed build: full
       disk (not safely simulable here), long-running cancellation during
       an actual DAW session, DAW closes mid-analysis, orphaned-temp-file

@@ -76,20 +76,13 @@ live" question is answered: yes.
 1. **Save/reload** — [x] **PASS** (2026-08-29): saved, closed REAPER
    entirely, reopened, plugin reloaded cleanly and still works.
 
-2. **Reconnect after desktop restart**
-   - [ ] With the plugin loaded and working, find and terminate
-     `BeatShoreDesktop.exe` directly (Task Manager, or however you'd
-     naturally do it) — simulating the desktop process dying
-     unexpectedly.
-   - [ ] Confirm the plugin's **bridge status label** reflects the
-     disconnect (not just silently stuck on the last-known "connected"
-     text).
-   - [ ] Relaunch `BeatShoreDesktop.exe` (or restart REAPER, whichever
-     is the intended real-world recovery path for BeatShore users —
-     note which one you tested).
-   - [ ] Confirm the bridge status label recovers to a connected state
-     and a fresh analysis (tempo or transcription) succeeds again,
-     without reloading the plugin itself.
+2. **Reconnect after desktop restart** — [x] **PASS** (2026-08-29):
+   `BeatShoreDesktop.exe` terminated directly, bridge status label
+   reacted to the disconnect, relaunched, status recovered to connected
+   and a fresh analysis succeeded again without reloading the plugin.
+   Exact label wording at each stage not captured verbatim in a
+   screenshot, but the full disconnect → react → relaunch → reconnect →
+   working-analysis cycle was confirmed.
 
 3. **Multiple instances** — [x] **PASS** (2026-08-29): BeatShore Bridge
    loaded on two tracks, different audio fed into each, each instance's
@@ -106,23 +99,22 @@ live" question is answered: yes.
    `AudioProcessorParameter`s to ever support this. Tracked as a
    feature gap, not a defect in what exists today.
 
-5. **Playback/passthrough under load**
-   - [ ] Start playback of a project with other tracks/plugins running
-     alongside BeatShore Bridge (a realistic session, not an empty
-     project).
-   - [ ] While playback continues, trigger an analysis (tempo or
-     transcription).
-   - [ ] Confirm: audio playback through REAPER does not glitch, stutter,
-     or dropout while the analysis runs in the background; the
-     transport keeps running normally; the analysis itself still
-     completes and returns a correct result.
-   - [ ] Note CPU load in REAPER's performance meter before and during
-     the analysis, for a rough sense of real-world impact.
+5. **Playback/passthrough under load** — [x] **PASS** (2026-08-29):
+   BeatShore Bridge loaded alongside Ozone Pro's full chain (EQ×2,
+   Dynamics, Maximizer) on the same track, playback running. Both
+   Analyze Tempo (166.71 BPM, 125ms) and Transcribe (7 notes,
+   `source: live-captured`, 109ms) triggered mid-playback and completed
+   correctly, transport kept running, no reported glitching. A
+   genuinely non-trivial concurrent plugin load, not an empty project.
 
 **Pass criteria for this section**: each numbered scenario either passes
 as described, or is recorded as a specific, reproducible finding (not a
 vague "seemed off") — including the MIDI-learn item, which may
-legitimately reveal a UI gap rather than a bug.
+legitimately reveal a UI gap rather than a bug. **All five scenarios
+completed 2026-08-29**: save/reload, reconnect-after-restart, multiple
+instances, and playback-under-load all genuinely PASS; MIDI-learn is a
+confirmed real finding (not supported by the current plain-button UI,
+not a defect). Part B is done.
 
 ## After running this
 

@@ -13,10 +13,14 @@ Last updated 2026-08-25.
 - Full protocol round trip (plugin ↔ desktop broker ↔ Node/tfjs-node
   engine) verified for `tempo` and `transcribePolyphonic`, including a
   real MIDI file export with an independently-verified SHA-256.
-- Live-captured REAPER round trip verified for `tempo` (real audio →
-  capture → analysis → result in the plugin's own editor). Polyphonic
-  transcription is verified through the full protocol via test harnesses
-  but **not yet observed live inside REAPER** — see "Known issues" below.
+- Live-captured REAPER round trip verified for both `tempo` and
+  `transcribePolyphonic` (real audio → capture → analysis → result in
+  the plugin's own editor). The transcription pass: 232 notes found,
+  `source: live-captured`, 750ms, real MIDI file written and the "Open
+  Export Folder" button enabled — the first genuine human-observed live
+  polyphonic transcription this project has had (2026-08-29). MIDI
+  re-import/inspection and a second independent-instrument pass are
+  still open — see `REAPER_TEST_CHECKLIST.md` Part A, steps 7-9.
 - Genuine cancellation (a `CANCEL` for a request that's actually running
   kills and restarts the desktop's Node engine, ~100–150ms, with verified
   recovery), multiple simultaneous plugin sessions, and a bounded
@@ -99,10 +103,13 @@ Last updated 2026-08-25.
   URL** in the installer script — publisher name and copyright are now
   real (see above); these three still need genuinely live addresses,
   not invented here.
-- **Only Analyze Tempo has been observed live inside REAPER.**
-  `transcribePolyphonic`'s live-captured round trip, REAPER project
-  save/reload, and reconnect-after-desktop-restart are all unobserved in
-  a real hosted session (exercised only via automated test harnesses).
+- ~~Only Analyze Tempo has been observed live inside REAPER.~~ Both
+  `tempo` and `transcribePolyphonic` are now observed live
+  (2026-08-29) — see "Current verified capabilities" above. REAPER
+  project save/reload, reconnect-after-desktop-restart, multiple
+  instances, MIDI-learn, and playback-under-load are still unobserved in
+  a real hosted session (exercised only via automated test harnesses) —
+  `REAPER_TEST_CHECKLIST.md` Part B, not yet run.
 - **Only one Node worker** (`kMaxConcurrentNodeJobs = 1`) — sessions
   correctly share and queue behind it, but there's no genuine parallel
   inference throughput. See "Deferred decisions" below for why this
@@ -190,7 +197,7 @@ tracked in this table.
 | DAW | Status |
 |---|---|
 | Steinberg Validator | 47/47 |
-| REAPER | Hosted IPC verified for Analyze Tempo; polyphonic transcription verified via test harness only, not yet observed live |
+| REAPER | Hosted IPC verified live for both Analyze Tempo and polyphonic transcription (2026-08-29); lifecycle (save/reload, reconnect, multi-instance, MIDI-learn, playback under load) not yet run |
 | Cubase | Untested |
 | Ableton Live | Untested |
 | FL Studio | Untested |
@@ -198,8 +205,11 @@ tracked in this table.
 
 ## Known issues
 
-1. Live polyphonic transcription unobserved in REAPER (file-based path
-   proven; live-captured path is not).
+1. ~~Live polyphonic transcription unobserved in REAPER~~ Observed live
+   2026-08-29 (232 notes, `source: live-captured`, real MIDI exported).
+   MIDI re-import/inspection and a second independent-instrument pass
+   still open, plus full REAPER lifecycle testing — see
+   `REAPER_TEST_CHECKLIST.md`.
 2. Clean-machine install (interactive, silent, repair, upgrade,
    uninstall, cancelled-install and failed-self-test behavior) unverified
    — needs a real VM.
@@ -259,7 +269,11 @@ they need real hardware, a certificate, or a human.
       "Current verified capabilities" above
 - [ ] Live polyphonic transcription verified in REAPER
       (`audioSource:"live-captured"`, MIDI import onto a new track,
-      timing/chords/velocities checked)
+      timing/chords/velocities checked) — core mechanism now confirmed
+      live (2026-08-29, 232 notes, real MIDI exported); MIDI
+      re-import/inspection and a second independent-instrument pass
+      still needed to fully close this item, see
+      `REAPER_TEST_CHECKLIST.md` Part A steps 7-9
 - [ ] REAPER lifecycle verified (save/reload, remove/reinsert, desktop
       restart mid-session, multiple instances, MIDI-learned trigger,
       playback/passthrough under load) — step-by-step script ready at

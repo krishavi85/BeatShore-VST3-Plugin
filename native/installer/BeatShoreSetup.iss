@@ -155,7 +155,7 @@
 ; Details) and recorded alongside its SHA-256 in RELEASE_MANIFEST.md --
 ; so "which exact binary is this" doesn't depend on trusting a filename
 ; or an external record alone.
-#define MyBuildId "20260825.1"
+#define MyBuildId "20260829.1"
 ; A SEPARATE small integer, not derived from MyBuildId above -- Windows
 ; version-resource components are 16-bit (max 65535), so MyBuildId's own
 ; YYYYMMDD-based portion can't be used directly as a numeric component.
@@ -169,7 +169,7 @@
 ; queryable build discriminator" that same comment claimed it was. Fixed
 ; by actually deriving VersionInfoVersion's 4th component from this
 ; value. Bump this alongside MyBuildId for each real rebuild.
-#define MyBuildNumber "4"
+#define MyBuildNumber "5"
 
 [Setup]
 AppId={#MyAppId}

@@ -153,14 +153,19 @@ Last updated 2026-08-25.
   fires under real conditions would need instrumenting the desktop's
   own live queue depth, not attempted since that means modifying
   production code purely to observe a test.
-- **A genuine, minor gap found along the way, not previously
-  confirmed**: temp audio files from sessions killed mid-request
-  (`taskkill`, matching how this project's own testing has repeatedly
-  terminated the desktop) are not cleaned up — found ~95 orphaned
-  `bsr_*.bsmraw` files in the OS temp directory dating back to earlier
-  test runs, none from normal completion. Low severity (the OS's own
-  temp-directory housekeeping eventually reclaims this), but real: there
-  is no "clean up orphaned temp files on startup" sweep today.
+- ~~Temp audio files from sessions killed mid-request are not cleaned
+  up.~~ **Fixed 2026-08-29**: `BeatShoreDesktop.exe` now sweeps orphaned
+  `bsr_*.bsmraw` files on startup, before accepting any connection —
+  only its own naming pattern, only files older than a 10-minute age
+  threshold (comfortable margin over the ~60s worst-case request
+  lifetime), and it leaves alone anything still genuinely held open by
+  a live process (Windows' own file-locking, the same pattern
+  `releaseJobResources()` already used). Verified with a real forced-
+  termination race (`LoadBoundaryTest.exe` + an immediate `Stop-Process`
+  genuinely produced a real 92MB orphan) followed by a real restart that
+  removed it once aged past the threshold, while a deliberately fresh
+  control file was correctly left alone. See STATUS.md's "Fifteenth"
+  section for the full account.
 - ~~CI now runs but every run so far has failed~~ **Resolved and
   confirmed**: `v0.2.0-rc7` (commit `817b4bf`) passed cleanly on a real
   GitHub-hosted `windows-latest` runner (run `33168764375`) — full
@@ -233,16 +238,17 @@ tracked in this table.
    budget **are** now both verified).
 7. ~~CI has never passed~~ Fixed and confirmed: `v0.2.0-rc7` (commit
    `817b4bf`) is the first genuinely passing run on a real GitHub-hosted
-   `windows-latest` runner — full build, Validator 51/51, staged
+   `windows-latest` runner — full build, Validator 47/47 against
+   `BeatShore Bridge.vst3` (plus the Validator tool's own separate
+   51-test internal self-test, unrelated to our plugin), staged
    self-test (real Basic Pitch inference), full regression suite, and a
    clean Inno Setup compile, all green. Two real bugs found via an
    actual from-scratch local repro and fixed: `-CleanEngine`'s `npm ci`
    hardcoded a path nothing ever populated, and `stage\` itself was
    never created before the EULA file was copied into it. See
    STATUS.md's "Fourteenth" section for the full writeup.
-8. Temp files from a session killed mid-request aren't cleaned up on
-   the next startup (low severity, but real — see "Current
-   limitations").
+8. ~~Temp files from a session killed mid-request aren't cleaned up on
+   the next startup.~~ Fixed 2026-08-29 — see "Current limitations".
 
 ## Deferred decisions
 
@@ -293,8 +299,7 @@ they need real hardware, a certificate, or a human.
       recorded UI gap, not left unverified
 - [ ] Remaining failure/recovery behavior on an installed build: full
       disk (not safely simulable here), long-running cancellation during
-      an actual DAW session, DAW closes mid-analysis, orphaned-temp-file
-      cleanup on startup after a killed session, and the
+      an actual DAW session, DAW closes mid-analysis, and the
       `kMaxGlobalQueueDepth` *rejection* boundary under real sustained
       load (needs a test client that can hold genuine queue depth —
       see "Current limitations"; the session-cap and 512MB memory-budget

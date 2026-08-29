@@ -267,6 +267,15 @@ static HANDLE g_singleInstanceMutex = nullptr;
 // single, idempotent place this is ever decremented.
 static std::atomic<uint64_t> g_reservedAudioBytes{0};
 
+// Age threshold for sweepOrphanedTempFiles() below -- generous margin over
+// the ~60s worst-case request lifetime (kMaxCaptureSeconds plus the
+// transcribePolyphonic request timeout), so nothing genuinely still in
+// flight is ever old enough to be swept, while still catching abandoned
+// files well before anyone would notice them piling up. Declared here
+// (ahead of the kMax* block further down) purely so sweepOrphanedTempFiles()
+// below can reference it -- it doesn't itself depend on any of those.
+static constexpr uint32_t kOrphanedTempFileMaxAgeSeconds = 600; // 10 minutes
+
 // Idempotent per-job cleanup: deletes the job's temp .bsmraw dump (if any)
 // and releases its share of g_reservedAudioBytes -- guarded by the job's
 // own resourcesReleased flag (AnalysisScheduler.h) so it's safe to call
@@ -293,6 +302,86 @@ static void releaseJobResources(const std::shared_ptr<AnalysisJob>& job)
             logLine("[desktop] WARNING: could not delete temp audio file for requestId=" + job->requestId + " (error=" + std::to_string(err) + ")");
     }
     if (job->reservedAudioBytes > 0) g_reservedAudioBytes.fetch_sub(job->reservedAudioBytes);
+}
+
+// Startup-only sweep for orphaned bsr_*.bsmraw temp files left behind by a
+// request that was in flight when the whole process terminated abnormally
+// (killed, crashed) -- releaseJobResources() above only ever runs for a job
+// that reaches a normal terminal state in the process that created it, so a
+// request in flight when the process itself dies never gets there, and the
+// file is left on disk indefinitely (a real, previously-undocumented gap --
+// see STATUS.md's "Thirteenth" section for how this was first found: ~95
+// stale files from earlier `taskkill`-during-request test runs).
+//
+// Safe to run unconditionally at startup: g_singleInstanceMutex (see
+// main()) is acquired before this is ever called, which proves no other
+// BeatShoreDesktop instance is alive right now to still be using any
+// bsr_*.bsmraw file in this directory. The age threshold
+// (kOrphanedTempFileMaxAgeSeconds) is the remaining defense against the one
+// edge case that survives the parent process itself dying: an orphaned
+// Node child (killed separately from its parent, or not killed at all)
+// that might still legitimately have a very recent dump open. Best-effort
+// per file, matching releaseJobResources()'s own DeleteFileA pattern: a
+// file still genuinely held open fails to delete (ERROR_SHARING_VIOLATION)
+// and is simply left alone, not treated as an error -- Windows' own
+// file-locking is the actual last line of defense here, the age check is
+// just the first one. Only ever touches this project's own bsr_*.bsmraw
+// naming pattern in the OS temp directory -- never anything else there.
+static void sweepOrphanedTempFiles(const std::string& tempDir)
+{
+    std::string pattern = tempDir + "\\bsr_*.bsmraw";
+    WIN32_FIND_DATAA findData;
+    HANDLE hFind = FindFirstFileA(pattern.c_str(), &findData);
+    if (hFind == INVALID_HANDLE_VALUE) return; // nothing to sweep -- not an error
+
+    FILETIME nowFt;
+    GetSystemTimeAsFileTime(&nowFt);
+    ULARGE_INTEGER now{};
+    now.LowPart = nowFt.dwLowDateTime;
+    now.HighPart = nowFt.dwHighDateTime;
+
+    int removed = 0, skippedInUse = 0, skippedRecent = 0;
+    do
+    {
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue; // defensive; this pattern is never a directory
+
+        ULARGE_INTEGER written{};
+        written.LowPart = findData.ftLastWriteTime.dwLowDateTime;
+        written.HighPart = findData.ftLastWriteTime.dwHighDateTime;
+        // FILETIME ticks are 100ns units.
+        uint64_t ageSeconds = (now.QuadPart > written.QuadPart)
+            ? (now.QuadPart - written.QuadPart) / 10000000ull
+            : 0;
+
+        if (ageSeconds < kOrphanedTempFileMaxAgeSeconds)
+        {
+            ++skippedRecent;
+            continue;
+        }
+
+        std::string fullPath = tempDir + "\\" + findData.cFileName;
+        if (DeleteFileA(fullPath.c_str()))
+        {
+            ++removed;
+            logLine("[desktop] startup cleanup: removed orphaned temp audio file " +
+                     redactPath(fullPath) + " (age=" + std::to_string(ageSeconds) + "s)");
+        }
+        else
+        {
+            DWORD err = GetLastError();
+            if (err != ERROR_FILE_NOT_FOUND) ++skippedInUse;
+            // Still held open by a live process, or some other non-fatal
+            // failure -- left alone, exactly as releaseJobResources() does
+            // for the same reason. Not logged per file to avoid noise on
+            // every normal startup; the summary line below covers it.
+        }
+    } while (FindNextFileA(hFind, &findData));
+    FindClose(hFind);
+
+    if (removed > 0 || skippedInUse > 0)
+        logLine("[desktop] startup cleanup: removed=" + std::to_string(removed) +
+                 " skipped_in_use=" + std::to_string(skippedInUse) +
+                 " skipped_recent=" + std::to_string(skippedRecent));
 }
 
 // Distinct from the existing per-message "v":1 field (which every message
@@ -1808,6 +1897,12 @@ int main(int argc, char** argv)
 
     logLine("[desktop] BeatShoreDesktop starting");
     logLine("[desktop] node engine script: " + scriptPath);
+
+    // Runs once, here, before anything else touches tempDir -- see
+    // sweepOrphanedTempFiles()'s own comment for why this exact point
+    // (after acquiring g_singleInstanceMutex, before starting workers or
+    // accepting any connection) is what makes it safe.
+    sweepOrphanedTempFiles(tempDir);
 
     std::vector<std::thread> workerThreads;
     for (int i = 0; i < kMaxConcurrentNodeJobs; ++i)

@@ -2283,6 +2283,82 @@ artifact unsigned, exactly as designed -- that remains a real, separate,
 still-open item (see the release acceptance checklist), not something
 this fix touched or claims to have addressed.
 
+### Fifteenth: orphaned temp-file cleanup, fixed and verified with a real forced-termination test
+
+The gap first found in "Thirteenth" above -- temp audio files from a
+session killed mid-request are never cleaned up -- is fixed. Added
+`sweepOrphanedTempFiles()` to `main.cpp`, called once at startup
+immediately after `g_singleInstanceMutex` is acquired and before the
+accept loop or any worker thread starts. That exact placement is what
+makes it safe to run unconditionally: the single-instance mutex proves
+no other `BeatShoreDesktop` instance is alive to still be using any
+`bsr_*.bsmraw` file in the temp directory at that moment, and this
+process hasn't created any jobs of its own yet either. The one edge
+case that survives the parent process dying -- an orphaned Node child
+that outlives it and might still legitimately have a very recent dump
+open -- is handled by an age threshold (`kOrphanedTempFileMaxAgeSeconds`,
+600s, generous margin over the ~60s worst-case request lifetime) plus
+Windows' own file-locking: a file still genuinely held open fails to
+delete with `ERROR_SHARING_VIOLATION` and is left alone, exactly like
+the existing `releaseJobResources()` pattern this new function
+deliberately mirrors. Only ever matches this project's own
+`bsr_*.bsmraw` naming pattern -- nothing else in the OS temp directory
+is touched. Every removal (and a summary line whenever anything was
+removed or skipped-as-in-use) is logged, through the same `logLine()`/
+`redactPath()` path as everything else, so a swept file's path is
+redacted by default exactly like a live request's would be.
+
+First attempt at wiring this in put the new
+`kOrphanedTempFileMaxAgeSeconds` constant next to the other `kMax*`
+constants further down the file, after `sweepOrphanedTempFiles()`
+itself -- a real compile error (`C2065: undeclared identifier`), since
+the function using it is defined earlier in the same translation unit.
+Fixed by moving the constant up next to `g_reservedAudioBytes`, ahead
+of `releaseJobResources()`, with a comment explaining why it lives there
+instead of with the rest of the `kMax*` block it conceptually belongs
+with.
+
+Verified two ways, not just compiled-and-assumed-correct:
+
+1. **A genuine forced-termination race, not a synthetic scenario.**
+   `LoadBoundaryTest.exe --queue 1 1` (a real session, a real 92MB
+   `ANALYSIS_REQUEST`) started, followed within the same PowerShell
+   invocation by an immediate `Stop-Process -Force` on
+   `BeatShoreDesktop.exe` -- a 50ms gap between the two, deliberately
+   racy. This genuinely produced a real orphaned 92MB `bsr_*.bsmraw`
+   file, the same failure mode "Thirteenth" originally found by accident
+   across many earlier test runs, reproduced here on purpose in one
+   shot.
+2. **Deterministic proof of both branches of the age gate**, since the
+   real orphan above is fresh (0s old) and waiting a genuine 10 minutes
+   for a fast local test isn't practical: backdated that real orphan's
+   own `LastWriteTime` to 15 minutes ago (a legitimate way to simulate
+   "this has been sitting here a while" -- the code only ever reads the
+   file's real last-write time, it has no way to know or care that the
+   clock was wound back rather than genuine time passing), and created a
+   second, deliberately fresh dummy file matching the same naming
+   pattern as a control. Relaunched the freshly-built desktop and
+   captured its real startup log:
+   ```
+   [+16ms] [desktop] startup cleanup: removed orphaned temp audio file <redacted> (age=907s)
+   [+16ms] [desktop] startup cleanup: removed=1 skipped_in_use=0 skipped_recent=1
+   ```
+   The aged real orphan was removed; the fresh control file was left
+   alone (confirmed still present on disk afterward) -- both branches of
+   the age gate verified against real files, not just read as correct
+   from the source. The user's own live REAPER session (still open from
+   the "Fourteenth"-era REAPER lifecycle testing, connected to whichever
+   desktop instance is currently running) auto-reconnected to the newly
+   restarted desktop with no disruption beyond the deliberate restart
+   itself, consistent with the already-verified reconnect behavior.
+
+Not yet exercised: the true 10-minute unaged path (an orphan that's
+genuinely, not artificially, old enough to sweep) and a second
+forced-termination race under different timing (the 50ms gap used above
+worked on the first attempt; not proven to be reliably reproducible at
+that exact margin, only proven to be *possible*, which is what the fix
+needs to handle regardless of how often it happens in practice).
+
 An external review of the first draft caught six genuine release blockers
 and a long list of real script issues, none of which had been caught by
 this project's own testing (which had focused on "does the staged engine

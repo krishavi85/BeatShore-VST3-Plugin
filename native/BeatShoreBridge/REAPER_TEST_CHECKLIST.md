@@ -42,11 +42,21 @@ REAPER.
    354b42dae3d24e1e8a1f61842ab15bb....mid`, algorithm confirmed as
    "basic-pitch CNN (Spotify, Apache-2.0) via @tensorflow/tfjs-node",
    `source: live-captured`
-7. [ ] Click **"Open Export Folder"** — button visible and enabled in
-   the screenshot; folder-open action itself not yet separately
-   confirmed.
-8. [ ] Import that `.mid` file onto a new REAPER track and check note
-   correspondence/timing/chords — not yet confirmed.
+7. [x] Click **"Open Export Folder"** — confirmed: Explorer opened
+   showing the real accumulated history of exported files (14 `.mid`
+   files across multiple sessions 8/25-8/29, matching timestamps).
+   **PASS**
+8. [~] Import that `.mid` file onto a new REAPER track — imported
+   successfully, note data visible in the item. Playback in REAPER was
+   silent; **root-caused as expected REAPER behavior, not a BeatShore
+   bug**: the track had only BeatShore Bridge (an audio effect --
+   "thin passthrough + host context reader", 2-in/2-out) loaded, no
+   instrument, so there's nothing to render the MIDI notes into audio.
+   Confirmed the exported file itself is valid: the same `.mid` played
+   audibly in Windows Media Player (which auto-routes MIDI through the
+   Windows GS Wavetable synth). Retry with an actual instrument (e.g.
+   REAPER's stock ReaSynth) on the track needed to confirm note
+   correspondence/timing/chords -- not yet done.
 9. [ ] Repeat with a *different* instrument/register for a second
    independent pass — not yet done (checklist's own pass criteria below
    asks for two).

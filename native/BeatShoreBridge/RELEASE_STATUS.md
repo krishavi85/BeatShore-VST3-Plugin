@@ -147,21 +147,15 @@ Last updated 2026-08-25.
   test runs, none from normal completion. Low severity (the OS's own
   temp-directory housekeeping eventually reclaims this), but real: there
   is no "clean up orphaned temp files on startup" sweep today.
-- **CI now runs (Actions were enabled on the GitHub side between
-  sessions) but both real runs so far have failed**, in the
-  ~80-110-second range — too fast to be a real compile failure. Root
-  cause identified by reasoning, not by reading the failure log (GitHub's
-  raw job-log download requires authentication this environment doesn't
-  have): `build-release.ps1` assumed every CMake build directory already
-  existed and was configured — true on the dev machine this project was
-  built on, never true on a genuinely fresh checkout. Fixed (commit
-  `100d864`, pushed to `main`) and verified locally (still exits 0,
-  every hash byte-identical to before — a pure build-infrastructure fix
-  with zero effect on the shipped binaries) but **not yet confirmed
-  against an actual fresh CI checkout** — both failed runs were
-  triggered before this fix landed. Trigger a fresh run against `main`
-  (via the Actions tab's "Run workflow" — the workflow already supports
-  `workflow_dispatch`, no new tag required) to confirm.
+- ~~CI now runs but every run so far has failed~~ **Resolved and
+  confirmed**: `v0.2.0-rc7` (commit `817b4bf`) passed cleanly on a real
+  GitHub-hosted `windows-latest` runner (run `33168764375`) — full
+  build, Validator, staged self-test with real Basic Pitch inference,
+  full regression suite, clean Inno Setup compile, installer artifact
+  uploaded. Two real bugs (a hardcoded Node path in `-CleanEngine`, and
+  `stage\` never being created before the EULA copy) were found via an
+  actual from-scratch local repro and fixed; see STATUS.md's
+  "Fourteenth" section for the full account.
 
 ## Exact artifact version and hashes
 
@@ -258,7 +252,9 @@ they need real hardware, a certificate, or a human.
       timestamped; SmartScreen behavior checked; manifest hashes
       regenerated after signing)
 - [ ] ★ Human legal review (JUCE 9 Starter terms, BeatShore EULA,
-      third-party notices, a privacy policy)
+      third-party notices, a privacy policy) — review packet assembled
+      at `legal/LEGAL_REVIEW_PACKET.md`, privacy policy drafted at
+      `legal/PRIVACY_POLICY_DRAFT.md`, both awaiting actual counsel
 - [x] Real icon (tray, exe, installer, Add/Remove Programs) — done, see
       "Current verified capabilities" above
 - [ ] Live polyphonic transcription verified in REAPER
@@ -266,7 +262,8 @@ they need real hardware, a certificate, or a human.
       timing/chords/velocities checked)
 - [ ] REAPER lifecycle verified (save/reload, remove/reinsert, desktop
       restart mid-session, multiple instances, MIDI-learned trigger,
-      playback/passthrough under load)
+      playback/passthrough under load) — step-by-step script ready at
+      `REAPER_TEST_CHECKLIST.md`, not yet run
 - [ ] Remaining failure/recovery behavior on an installed build: full
       disk (not safely simulable here), long-running cancellation during
       an actual DAW session, DAW closes mid-analysis, orphaned-temp-file
@@ -283,11 +280,9 @@ they need real hardware, a certificate, or a human.
       replaced with real, live addresses
 - [ ] Other Windows DAWs tested (Cubase, Ableton Live, FL Studio, Studio
       One)
-- [ ] CI workflow verified on a real GitHub Actions runner — Actions
-      enabled and now running, but both real runs failed fast; a real
-      root cause (missing CMake configure step on a fresh checkout) is
-      fixed on `main` (`100d864`) but not yet confirmed by an actual
-      passing run
+- [x] CI workflow verified on a real GitHub Actions runner — `v0.2.0-rc7`
+      (commit `817b4bf`) passed cleanly on `windows-latest`, run
+      `33168764375`
 
 Until the starred items are done, this is a **controlled Windows beta
 candidate**, not a public release.

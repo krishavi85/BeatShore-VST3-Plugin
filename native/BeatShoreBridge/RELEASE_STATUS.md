@@ -185,14 +185,20 @@ report) in `RELEASE_MANIFEST.md`:
 | Field | Value |
 |---|---|
 | Version | 0.2.0 |
-| Build ID | 20260825.1 (ProductVersion 0.2.0.4) |
-| Source commit | `bc62426` (untagged -- the "stage everything, not just binaries" fix on `main`, after `v0.2.0-rc4`) |
+| Build ID | 20260829.1 (ProductVersion 0.2.0.5) |
+| Source commit | `fad817c` (the orphaned-temp-file cleanup fix on `main`, after `v0.2.0-rc7`/`817b4bf`) |
 | Installer filename | `BeatShoreSetup-0.2.0.exe` |
-| Installer SHA-256 | `5b260b55ed8e26ae8dce97be6a2f3e370740e67f77e31f19150ee39bc591f1e6` |
-| Installer size | 98,836,284 bytes (~94.3MB) |
-| `BeatShoreDesktop.exe` SHA-256 | `6da67873ef53af7efc05efe480926ab2a0cddead4fcb1f0f72a9476f9a8a7691` |
-| `BeatShore Bridge.vst3` SHA-256 | `28ca81e6efc1804044cd9d5c1572768c56052d3488f6f1098c5cae665ae153f7` |
+| Installer SHA-256 | `0994890df1a74a1aea45f694de5521050506a1f03942ab0b99297bd40927ac6c` |
+| Installer size | 98,844,794 bytes (~94.3MB) |
+| `BeatShoreDesktop.exe` SHA-256 | `85bc818790ac8a7ec7ce55db67c703cace040af3cf6c560419cce279dddf6357` |
+| `BeatShore Bridge.vst3` SHA-256 | `28ca81e6efc1804044cd9d5c1572768c56052d3488f6f1098c5cae665ae153f7` (unchanged — no VST3 source changes) |
 | Code-signed | No |
+
+**Do not distribute any installer with the previous table's hash
+(`5b260b55ed8e...`)** — it was built from commit `bc62426`, three real
+commits behind current `main`. See `RELEASE_MANIFEST.md`'s 2026-08-29
+notice for the full account of what changed and why the old hash is
+stale, not just superseded.
 
 **Do not treat this table as long-lived** — regenerate it (and
 `RELEASE_MANIFEST.md`) via `build-release.ps1` for every real build; the
@@ -209,7 +215,7 @@ tracked in this table.
 | DAW | Status |
 |---|---|
 | Steinberg Validator | 47/47 |
-| REAPER | Hosted IPC verified live for both Analyze Tempo and polyphonic transcription (2026-08-29); lifecycle (save/reload, reconnect, multi-instance, MIDI-learn, playback under load) not yet run |
+| REAPER | Hosted IPC verified live for both Analyze Tempo and polyphonic transcription (2026-08-29). Full lifecycle (save/reload, reconnect, multi-instance, playback under load) verified 2026-08-29 — see `REAPER_TEST_CHECKLIST.md` Part B. MIDI-learn confirmed not currently possible (plain JUCE buttons, not host-automatable) |
 | Cubase | Untested |
 | Ableton Live | Untested |
 | FL Studio | Untested |

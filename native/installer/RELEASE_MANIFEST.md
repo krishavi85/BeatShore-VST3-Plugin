@@ -1,5 +1,62 @@
 # BeatShore release manifest
 
+**Regenerated again 2026-08-29.** This table had gone genuinely stale:
+it still described commit `bc62426` (2026-08-26) while `main` had moved
+to `817b4bf` (the fresh-checkout CI fix, confirmed passing on a real
+GitHub-hosted runner as `v0.2.0-rc7`) and then to real new work this
+same day -- the orphaned-temp-file cleanup fix (STATUS.md's
+"Fifteenth"). **Do not distribute `BeatShoreSetup-0.2.0.exe` with the
+hash `5b260b55ed8e...` (the previous table's installer hash) -- it was
+built from `bc62426`, three real commits and one real code change
+behind current `main`.** The hashes below are from a fresh rebuild at
+commit `fad817c` (full: `fad817c6b1cdce33c76ddeb8fef33175a1d10391`),
+build ID `20260829.1` (`ProductVersion 0.2.0.5`), verified end to end:
+Validator 47/47 against the rebuilt `BeatShore Bridge.vst3`, staged
+self-test (real Basic Pitch inference) PASS, full regression suite
+(`tempo`, `transcribePolyphonic`, `MultiSessionTest`) PASS, Inno Setup
+6.7.3 compile clean (0 warnings, 97.7s). `BeatShoreDesktop.exe` itself
+changed (303,616 bytes, up from 300,032 -- the real new
+`sweepOrphanedTempFiles()` code); `BeatShore Bridge.vst3` is
+byte-identical to the previous build, since nothing in its own source
+changed. Two staged engine files came back with different hashes than
+the last recorded values despite no source changes: `package.json`
+(611 bytes now vs. a stale "348 bytes" the previous table recorded --
+confirmed by direct comparison that the working tree and `git show
+HEAD:...` are byte-identical at 611 bytes, so the *previous* manifest
+entry was simply outdated documentation, not a real discrepancy) and
+`tfjs_binding.node` (the native tfjs-node addon, whose exact bytes
+aren't guaranteed identical across separate `npm ci` runs the way
+source-controlled JS files are -- functionally verified working via the
+real Basic Pitch inference in this build's own self-test and regression
+suite, not just hashed and assumed). See "How these were verified"
+below for the full account, and STATUS.md's "Fifteenth" section for the
+fix this build actually ships.
+
+**Superseded, do not use**: the `bc62426`-era hashes throughout the rest
+of this file below this notice, including `5b260b55ed8e...`
+(installer), `6da67873ef53af...` (the pre-fix `BeatShoreDesktop.exe`),
+and `ff52a75129088...` (the old staging-manifest hash). `BeatShore
+Bridge.vst3`'s hash (`28ca81e6efc180...`) is the one value from that
+table that's still current, since the VST3's own source hasn't changed.
+
+## Current build (commit `fad817c`, build `20260829.1`)
+
+| File | SHA-256 | Size |
+|---|---|---|
+| `BeatShoreDesktop.exe` | `85bc818790ac8a7ec7ce55db67c703cace040af3cf6c560419cce279dddf6357` | 303,616 bytes |
+| `BeatShore Bridge.vst3` (unchanged from the `bc62426` build) | `28ca81e6efc1804044cd9d5c1572768c56052d3488f6f1098c5cae665ae153f7` | 3,966,464 bytes |
+| `BeatShoreSetup-0.2.0.exe` (installer, `ProductVersion 0.2.0.5`) | `0994890df1a74a1aea45f694de5521050506a1f03942ab0b99297bd40927ac6c` | 98,844,794 bytes |
+| Staging-manifest hash (see the `bc62426`-era note below for the exact algorithm) | `f132dc251e2b9f474677b91cf2cf34cefc4a8d6de45673183409790ecc90f072` | staged file count: 8,481 |
+
+Not code-signed (no certificate available in this environment). Not yet
+confirmed on a real GitHub-hosted CI runner under this exact commit --
+`v0.2.0-rc7` (`817b4bf`) is the CI-confirmed commit; this build is three
+commits ahead of that (doc fixes, REAPER-testing records, and this
+temp-cleanup fix). Tag and push to get a real CI run before treating
+this as CI-verified the way rc7 was.
+
+---
+
 **Regenerated again 2026-08-25** via `build-release.ps1 -CleanEngine` --
 the first real run of the clean-engine path (full `npm ci` from scratch,
 the verified `tfjs-node` trim reapplied, complete regression suite,

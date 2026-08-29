@@ -2359,6 +2359,17 @@ worked on the first attempt; not proven to be reliably reproducible at
 that exact margin, only proven to be *possible*, which is what the fix
 needs to handle regardless of how often it happens in practice).
 
+**Update: confirmed on real CI too.** This fix, plus a regenerated
+`RELEASE_MANIFEST.md`/`RELEASE_STATUS.md` (both had gone genuinely
+stale, still describing commit `bc62426` while `main` had moved three
+real commits ahead), landed as commit `fad817c` and `a462104`, tagged
+and pushed as `v0.2.0-rc8`. Real GitHub-hosted `windows-latest` run
+`33272954916`: `status: completed, conclusion: success`, "Run release
+build" in 13m27s. `BeatShoreDesktop.exe` grew from 300,032 to 303,616
+bytes (the new code), `BeatShore Bridge.vst3` unchanged, matching what
+the local rebuild already showed -- CI didn't just pass, it passed with
+the exact artifact-size delta expected from this specific change.
+
 An external review of the first draft caught six genuine release blockers
 and a long list of real script issues, none of which had been caught by
 this project's own testing (which had focused on "does the staged engine

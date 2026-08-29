@@ -48,12 +48,12 @@ table that's still current, since the VST3's own source hasn't changed.
 | `BeatShoreSetup-0.2.0.exe` (installer, `ProductVersion 0.2.0.5`) | `0994890df1a74a1aea45f694de5521050506a1f03942ab0b99297bd40927ac6c` | 98,844,794 bytes |
 | Staging-manifest hash (see the `bc62426`-era note below for the exact algorithm) | `f132dc251e2b9f474677b91cf2cf34cefc4a8d6de45673183409790ecc90f072` | staged file count: 8,481 |
 
-Not code-signed (no certificate available in this environment). Not yet
-confirmed on a real GitHub-hosted CI runner under this exact commit --
-`v0.2.0-rc7` (`817b4bf`) is the CI-confirmed commit; this build is three
-commits ahead of that (doc fixes, REAPER-testing records, and this
-temp-cleanup fix). Tag and push to get a real CI run before treating
-this as CI-verified the way rc7 was.
+Not code-signed (no certificate available in this environment).
+**CI-confirmed**: tagged and pushed as `v0.2.0-rc8` (commit `a462104`,
+one commit ahead of `fad817c` above with only this manifest/doc
+regeneration itself, no further binary changes) — run `33272954916`
+completed with `conclusion: success` on a real GitHub-hosted
+`windows-latest` runner, "Run release build" finishing in 13m27s.
 
 ---
 

@@ -73,16 +73,8 @@ live" question is answered: yes.
 
 ## Part B — Full REAPER lifecycle
 
-1. **Save/reload**
-   - [ ] With BeatShore Bridge loaded and at least one successful
-     analysis result showing, save the REAPER project (`.rpp`).
-   - [ ] Close REAPER entirely.
-   - [ ] Reopen the saved project. Confirm the plugin reloads without
-     REAPER reporting a missing/failed plugin, and the editor opens
-     showing its normal UI (result labels may reset — that's expected,
-     just confirm no crash/error dialog).
-   - [ ] Run a fresh tempo analysis (see below) to confirm it still
-     functions post-reload, not just that the UI redraws.
+1. **Save/reload** — [x] **PASS** (2026-08-29): saved, closed REAPER
+   entirely, reopened, plugin reloaded cleanly and still works.
 
 2. **Reconnect after desktop restart**
    - [ ] With the plugin loaded and working, find and terminate
@@ -99,34 +91,20 @@ live" question is answered: yes.
      and a fresh analysis (tempo or transcription) succeeds again,
      without reloading the plugin itself.
 
-3. **Multiple instances**
-   - [ ] Load BeatShore Bridge on two different tracks in the same
-     project (or two different projects open at once, if that's a
-     realistic REAPER usage pattern you want covered).
-   - [ ] Feed different audio into each, run an analysis on both around
-     the same time.
-   - [ ] Confirm each instance's result reflects *its own* audio, not
-     the other instance's (no cross-talk/cross-session corruption —
-     this is already verified at the protocol level via
-     `BridgeClientTest`'s "two simultaneous instances" test, so this
-     step is confirming it holds true from inside REAPER's real UI,
-     not re-discovering it from scratch).
+3. **Multiple instances** — [x] **PASS** (2026-08-29): BeatShore Bridge
+   loaded on two tracks, different audio fed into each, each instance's
+   result correctly reflected its own audio — no cross-talk. Confirms
+   from inside REAPER's real UI what `BridgeClientTest`'s "two
+   simultaneous instances" test already verified at the protocol level.
 
-4. **MIDI-learned trigger**
-   - [ ] Right-click the "Analyze Tempo" or "Transcribe" button (or use
-     REAPER's standard "Learn" workflow for parameters this plugin
-     exposes, if any are exposed as automatable parameters rather than
-     plain JUCE buttons — note in your results which mechanism actually
-     applies, since this may reveal the buttons aren't MIDI-learnable
-     as currently built).
-   - [ ] If MIDI-learn is possible: bind it to a MIDI controller/note
-     and confirm triggering it via MIDI produces the same result as
-     clicking the button directly.
-   - [ ] If MIDI-learn is *not* possible with the current UI (plain
-     JUCE `TextButton`s are typically not host-automatable), record
-     that as a real finding, not a test failure — it tells us whether
-     "MIDI-learned trigger" needs a UI change before it can ever be
-     verified, separate from whether the underlying analysis works.
+4. **MIDI-learned trigger** — [x] **Real finding, not a bug**
+   (2026-08-29): confirmed no automatable parameters are exposed —
+   "Analyze Tempo" and "Transcribe" are plain JUCE `TextButton`s, not
+   host-automatable/MIDI-learnable parameters, exactly as anticipated.
+   MIDI-learned triggering of an analysis is **not currently possible**
+   with this UI; would need the buttons (or a proxy) exposed as real
+   `AudioProcessorParameter`s to ever support this. Tracked as a
+   feature gap, not a defect in what exists today.
 
 5. **Playback/passthrough under load**
    - [ ] Start playback of a project with other tracks/plugins running

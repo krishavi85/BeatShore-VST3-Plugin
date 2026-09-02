@@ -1,0 +1,70 @@
+{
+  "sampleRate": 48000,
+  "totalDurationSeconds": 5.1,
+  "description": "C-major arpeggio (C4-E4-G4-C5-G4-E4) followed by a held C-major triad (C4+E4+G4)",
+  "notes": [
+    {
+      "midiNote": 60,
+      "noteName": "C4",
+      "startSeconds": 0.0,
+      "durationSeconds": 0.45,
+      "velocityHint": 0.85
+    },
+    {
+      "midiNote": 64,
+      "noteName": "E4",
+      "startSeconds": 0.6,
+      "durationSeconds": 0.45,
+      "velocityHint": 0.85
+    },
+    {
+      "midiNote": 67,
+      "noteName": "G4",
+      "startSeconds": 1.2,
+      "durationSeconds": 0.45,
+      "velocityHint": 0.85
+    },
+    {
+      "midiNote": 72,
+      "noteName": "C5",
+      "startSeconds": 1.8,
+      "durationSeconds": 0.45,
+      "velocityHint": 0.85
+    },
+    {
+      "midiNote": 67,
+      "noteName": "G4",
+      "startSeconds": 2.4,
+      "durationSeconds": 0.45,
+      "velocityHint": 0.85
+    },
+    {
+      "midiNote": 64,
+      "noteName": "E4",
+      "startSeconds": 3.0,
+      "durationSeconds": 0.45,
+      "velocityHint": 0.85
+    },
+    {
+      "midiNote": 60,
+      "noteName": "C4",
+      "startSeconds": 3.6,
+      "durationSeconds": 1.2,
+      "velocityHint": 0.8
+    },
+    {
+      "midiNote": 64,
+      "noteName": "E4",
+      "startSeconds": 3.6,
+      "durationSeconds": 1.2,
+      "velocityHint": 0.8
+    },
+    {
+      "midiNote": 67,
+      "noteName": "G4",
+      "startSeconds": 3.6,
+      "durationSeconds": 1.2,
+      "velocityHint": 0.8
+    }
+  ]
+}

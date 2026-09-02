@@ -62,7 +62,8 @@ const ALGORITHMS = {
 };
 
 async function handle(req) {
-  const { requestId, kind, audioFile, role, hostTrackName } = req;
+  const { requestId, kind, audioFile, role, hostTrackName,
+          humanizeTiming, humanizeVelocity, humanizeDynamics, humanizeArticulation, preserveGroove } = req;
   if (SUPPORTED_KINDS.indexOf(kind) < 0) {
     send({ type: 'ERROR', requestId, errorCode: 'UNSUPPORTED_KIND', message: "unsupported analysis kind '" + kind + "' (desktop engine v1 supports: " + SUPPORTED_KINDS.join(', ') + ')' });
     return;
@@ -95,11 +96,32 @@ async function handle(req) {
         notes = await transcribePolyphonic(resampled, (pct) => send({ type: 'ANALYSIS_PROGRESS', requestId, progress: 0.1 + pct * 0.75 }));
       }
 
-      const computeMs = Date.now() - startedAtMs;
       const tempo = req.tempo || 120;
+
+      // Real, parameterized note-level randomization (dsp.applyHumanization,
+      // see its own comment for exactly what each knob does) -- only run
+      // when at least one amount is actually nonzero, so a request that
+      // doesn't ask for it costs nothing extra and behaves exactly as
+      // before this feature existed. Applied here, before humanizeStats()
+      // below and before the MIDI file is written, so both the reported
+      // stats and the exported file reflect the humanized result, not the
+      // raw transcription.
+      const humanizeAmounts = {
+        timing: humanizeTiming || 0, velocity: humanizeVelocity || 0,
+        dynamics: humanizeDynamics || 0, articulation: humanizeArticulation || 0,
+      };
+      const humanizeRequested = Object.values(humanizeAmounts).some((v) => v > 0);
+      if (humanizeRequested && notes.length) {
+        notes = dsp.applyHumanization(notes, { ...humanizeAmounts, preserveGroove: !!preserveGroove, tempo });
+      }
+
+      const computeMs = Date.now() - startedAtMs;
       const hum = notes.length ? dsp.humanizeStats(notes, tempo) : null;
 
-      const result = { type: 'MIDI_RESULT', requestId, algorithm: ALGORITHMS[kind], computeMs, noteCount: notes.length, notes, humanize: hum };
+      const result = {
+        type: 'MIDI_RESULT', requestId, algorithm: ALGORITHMS[kind], computeMs, noteCount: notes.length, notes,
+        humanize: hum, humanizeApplied: humanizeRequested,
+      };
       if (notes.length) {
         send({ type: 'ANALYSIS_PROGRESS', requestId, progress: 0.95 });
         try {

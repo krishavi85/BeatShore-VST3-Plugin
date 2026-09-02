@@ -2587,6 +2587,99 @@ the live copy** -- needs the user to close the plugin instance or
 REAPER itself first, same as any other REAPER-side change this project
 has needed their hands for.
 
+### Nineteenth: real humanization -- the first genuinely new DSP capability from the design blueprint
+
+After the sidebar reorg, the user pushed further: match the blueprint's
+picture, and make everything in it real. Refused to fake the parts that
+genuinely can't be -- 12-part stem separation (needs a trained
+Demucs/Spleeter-class model), de-reverb (an unsolved-in-general research
+problem), de-bleed (source separation again), instrument identification
+as pictured (would be a low-accuracy heuristic badged as "AI"), and
+"Ask BeatShore" (a real LLM integration needs the user's own provider/
+API-key decision) -- all stated plainly rather than quietly built as
+something worse than what's already documented. Committed instead to
+building exactly one real vertical completely: **Humanize**, the one
+blueprint feature that's genuinely achievable as plain, describable DSP/
+MIDI manipulation with no ML model required.
+
+**What's real**: `beatshore-dsp.js` gained `applyHumanization(notes,
+opts)` -- a parameterized randomization (timing/velocity/dynamics/
+articulation, each 0..1, plus a preserveGroove flag), explicitly
+documented as NOT a learned model, using a real seeded xorshift32 PRNG
+(reproducible given the same seed, not `Math.random()`). Timing jitter
+is scaled to the same tempo-relative 16th-note grid `humanizeStats()`
+(the existing, older *measurement* function -- this is its counterpart,
+applying variation rather than measuring it) already uses, so the two
+functions agree on what "one grid unit" means. `analyze.js` reads five
+new optional request fields (`humanizeTiming`, `humanizeVelocity`,
+`humanizeDynamics`, `humanizeArticulation`, `preserveGroove`) and, only
+when at least one is actually nonzero, applies the transformation to the
+notes array before `humanizeStats()` runs and before the MIDI file is
+written -- so both the reported stats and the exported file reflect the
+humanized result, not the raw transcription. A request that doesn't ask
+for it costs nothing extra and behaves exactly as before this feature
+existed.
+
+Threaded the same five fields the rest of the way, mirroring the
+existing `role` field's own pattern exactly at every layer:
+`AnalysisJob` (main.cpp) gained the five fields; the pipe-session handler
+reads them off the incoming `ANALYSIS_REQUEST` and forwards them to
+Node; `BridgeTypes.h` gained a shared `HumanizeSettings` struct (all-zero
+default = "not requested") plus a `humanizeApplied` field on
+`BridgeAnalysisResult`; `BridgeClient::requestAnalysis()` gained an
+optional `HumanizeSettings` parameter, sent only when `isActive()`;
+`PluginProcessor` gained a persistent `humanizeSettings` member plus
+`setHumanizeSettings()`/`getHumanizeSettings()`, read by
+`triggerAnalysisOfKind()` on every trigger. The real, honest limitation,
+stated in the UI itself (`humanizeExplainerLabel`), not just in this
+log: there is no live-editable note buffer in this plugin, so
+humanization is **not retroactive** -- set the amounts on the Humanize
+page, then trigger a transcription; it does not reach back and modify a
+result already showing on the Transcribe page.
+
+**Humanize is now a real, third built page** in the sidebar (alongside
+Overview and Transcribe) -- four real `juce::Slider` rotary knobs
+(Timing/Velocity/Dynamics/Articulation, 0-100%) and a real
+`juce::ToggleButton` (Preserve Groove), every control's `onValueChange`/
+`onClick` pushing the current state to `processor.setHumanizeSettings()`
+in one call so the processor's copy is always exactly what the sliders
+show. The other seven blueprint sections (Separate, Repair, Reconstruct,
+Sound Match, Mix, Master, Export) still show the honest "NOT BUILT YET"
+panel from the Eighteenth section, for the real reasons stated above,
+not because they were skipped without explanation.
+
+**Verified two ways, the second one considerably more real than a
+structural check:**
+1. Clean rebuild across all three affected binaries
+   (`BeatShoreDesktop.exe`, `BeatShore Bridge.vst3`) -- zero warnings --
+   and the Steinberg Validator still **47/47**.
+2. Extended the same throwaway smoke-test program with a real
+   before/after comparison: `transcribeDrums` against the IDENTICAL
+   synthetic audio, once with no humanize fields at all (the exact
+   request every existing caller already sends) and once with all four
+   amounts at maximum. `transcribeDrums`'s onset detection has no
+   randomness of its own, so any difference between the two runs can
+   only have come from `applyHumanization()` genuinely executing --
+   not inferred from reading the code. Real result: baseline
+   `humanizeApplied=false, firstNote.time=0.0348299s, vel=127`;
+   humanized `humanizeApplied=true, firstNote.time=0.0142093s, vel=90`.
+   Both the flag and real note data changed, confirmed by two live
+   requests against a real running desktop, not assumed. **7/7** smoke
+   cases passed (the original six plus this comparison).
+
+**Not yet verified**: actually turning the sliders in REAPER's own UI
+and confirming a subsequent transcription comes out audibly humanized
+-- the smoke test proves the wire protocol and DSP transformation are
+real and correctly wired end-to-end; it does not and cannot exercise
+`PluginProcessor`/`BridgeClient.h`'s own new code paths
+(`setHumanizeSettings()`, the `HumanizeSettings` parameter on
+`requestAnalysis()`) the way clicking real JUCE controls would, since
+this environment has no way to drive a native Windows GUI. That code is
+a thin, mechanical mirror of the already-proven `role` parameter
+threading (same files, same pattern, same places), not new design, but
+"mirrors a proven pattern" is not the same claim as "verified," and
+isn't asserted as more than that here.
+
 An external review of the first draft caught six genuine release blockers
 and a long list of real script issues, none of which had been caught by
 this project's own testing (which had focused on "does the staged engine

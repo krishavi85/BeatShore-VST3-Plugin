@@ -38,6 +38,22 @@ struct HostSnapshot
     std::atomic<bool> hostProvidesTransport { false };
 };
 
+// Humanization amounts set on the editor's Humanize page, applied to
+// whichever MIDI-producing kind (transcribePolyphonic/transcribeDrums/
+// transcribeMono) is triggered next -- see PluginProcessor::triggerAnalysisOfKind()
+// and BridgeClient::requestAnalysis(). Values are 0..1 (a 0-100% slider /
+// 100), matching what analyze.js's dsp.applyHumanization() itself expects;
+// this struct crosses the BridgeClient boundary unmodified, no unit
+// conversion happens on the way. All-zero (the default) means "not
+// requested" -- a request built from a default-constructed one behaves
+// exactly as it did before this feature existed.
+struct HumanizeSettings
+{
+    float timing = 0.0f, velocity = 0.0f, dynamics = 0.0f, articulation = 0.0f;
+    bool preserveGroove = false;
+    bool isActive() const { return timing > 0.0f || velocity > 0.0f || dynamics > 0.0f || articulation > 0.0f; }
+};
+
 struct BridgeAnalysisResult
 {
     std::string requestIdEcho;
@@ -60,5 +76,6 @@ struct BridgeAnalysisResult
     std::string midiSha256;
     std::string midiWriteError;  // non-empty only if notes were found but the file write failed -- the transcription itself still succeeded
     int midiSizeBytes = -1;      // -1 = not reported (e.g. midiPath is empty)
+    bool humanizeApplied = false; // echoes analyze.js's own humanizeApplied -- true only if at least one HumanizeSettings amount was actually nonzero for this request
     std::string midiGeneratedAt; // ISO8601, empty if not reported
 };

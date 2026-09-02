@@ -155,7 +155,7 @@ BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcesso
     if (outcome != SnapshotOutcome::Ok) return CaptureTriggerResult::NoAudioCaptured;
     if (peak < 1.0e-4f) return CaptureTriggerResult::SilentAudio;
 
-    const bool started = bridgeClient->requestAnalysis(interleaved, uint32_t(captureSampleRate), 2, uint32_t(interleaved.size() / 2), kind, "live-captured", getHostTrackName(), role);
+    const bool started = bridgeClient->requestAnalysis(interleaved, uint32_t(captureSampleRate), 2, uint32_t(interleaved.size() / 2), kind, "live-captured", getHostTrackName(), role, humanizeSettings);
     return started ? CaptureTriggerResult::Started : CaptureTriggerResult::AlreadyInFlight;
 }
 

@@ -729,6 +729,11 @@ static void runNodeWorker(int workerIndex, JobQueue& jobQueue, SessionRegistry& 
         if (!job->role.empty()) nodeReq.set("role", job->role);
         if (job->tempo > 0.0) nodeReq.set("tempo", job->tempo);
         if (!job->hostTrackName.empty()) nodeReq.set("hostTrackName", job->hostTrackName);
+        if (job->humanizeTiming > 0.0) nodeReq.set("humanizeTiming", job->humanizeTiming);
+        if (job->humanizeVelocity > 0.0) nodeReq.set("humanizeVelocity", job->humanizeVelocity);
+        if (job->humanizeDynamics > 0.0) nodeReq.set("humanizeDynamics", job->humanizeDynamics);
+        if (job->humanizeArticulation > 0.0) nodeReq.set("humanizeArticulation", job->humanizeArticulation);
+        if (job->preserveGroove) nodeReq.set("preserveGroove", job->preserveGroove);
         nodeReq.set("audioFile", job->tempAudioPath);
         std::string nodeReqLine = stringify(nodeReq);
         logLine(logPrefix + "-> node: " + redactContent(nodeReqLine));
@@ -1223,6 +1228,11 @@ static void runPipeSession(HANDLE pipeHandle, std::string sessionId, JobQueue& j
             job->reservedAudioBytes = audioByteCount;
             if (msg.has("role")) job->role = msg["role"].asString();
             if (msg.has("tempo")) job->tempo = msg["tempo"].asNumber();
+            if (msg.has("humanizeTiming")) job->humanizeTiming = msg["humanizeTiming"].asNumber();
+            if (msg.has("humanizeVelocity")) job->humanizeVelocity = msg["humanizeVelocity"].asNumber();
+            if (msg.has("humanizeDynamics")) job->humanizeDynamics = msg["humanizeDynamics"].asNumber();
+            if (msg.has("humanizeArticulation")) job->humanizeArticulation = msg["humanizeArticulation"].asNumber();
+            if (msg.has("preserveGroove")) job->preserveGroove = msg["preserveGroove"].asBool();
 
             jobRegistry.add(job);
             jobQueue.push(job);

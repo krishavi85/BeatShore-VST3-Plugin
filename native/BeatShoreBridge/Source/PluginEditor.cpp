@@ -241,9 +241,53 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     comingSoonBodyLabel.setFont(juce::Font(juce::FontOptions(12.5f)));
     addAndMakeVisible(comingSoonBodyLabel);
 
+    // --- Humanize page ---------------------------------------------
+    styleHeading(humanizeSectionLabel, "HUMANIZE (APPLIES TO YOUR NEXT TRANSCRIPTION)");
+    addAndMakeVisible(humanizeSectionLabel);
+
+    styleValue(humanizeExplainerLabel);
+    humanizeExplainerLabel.setFont(juce::Font(juce::FontOptions(11.5f)));
+    humanizeExplainerLabel.setColour(juce::Label::textColourId, juce::Colour(kTextDim));
+    humanizeExplainerLabel.setText(
+        "Real, parameterized randomization (not a learned model) applied to note timing, "
+        "velocity, dynamics, and articulation. Set these, then trigger a transcription on the "
+        "Transcribe page -- it is NOT retroactive to a result you already have.",
+        juce::dontSendNotification);
+    humanizeExplainerLabel.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(humanizeExplainerLabel);
+
+    auto setupHumanizeSlider = [this](juce::Slider& slider, juce::Label& label, const juce::String& name)
+    {
+        slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        slider.setRange(0.0, 100.0, 1.0);
+        slider.setValue(0.0, juce::dontSendNotification);
+        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 18);
+        slider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(kAccent));
+        slider.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(kAccentDim));
+        slider.setColour(juce::Slider::thumbColourId, juce::Colour(kLive));
+        slider.setColour(juce::Slider::textBoxTextColourId, juce::Colour(kTextPrime));
+        slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        slider.onValueChange = [this] { humanizeControlsChanged(); };
+        addAndMakeVisible(slider);
+
+        styleHeading(label, name);
+        label.setJustificationType(juce::Justification::centred);
+        addAndMakeVisible(label);
+    };
+    setupHumanizeSlider(timingSlider, timingSliderLabel, "TIMING");
+    setupHumanizeSlider(velocitySlider, velocitySliderLabel, "VELOCITY");
+    setupHumanizeSlider(dynamicsSlider, dynamicsSliderLabel, "DYNAMICS");
+    setupHumanizeSlider(articulationSlider, articulationSliderLabel, "ARTICULATION");
+
+    preserveGrooveToggle.setButtonText("Preserve Groove (smaller, non-drifting timing jitter)");
+    preserveGrooveToggle.setColour(juce::ToggleButton::textColourId, juce::Colour(kTextPrime));
+    preserveGrooveToggle.setColour(juce::ToggleButton::tickColourId, juce::Colour(kLive));
+    preserveGrooveToggle.onClick = [this] { humanizeControlsChanged(); };
+    addAndMakeVisible(preserveGrooveToggle);
+
     // Wider than the single-column layout this replaced -- room for the
     // sidebar alongside a page's content. Height sized for the taller of
-    // the two real pages (Transcribe); Overview and the placeholder pages
+    // the real pages (Transcribe); Overview/Humanize/the placeholder pages
     // simply don't fill it.
     setSize(760, 700);
     showPage(Page::Overview);
@@ -277,7 +321,7 @@ const char* BeatShoreBridgeAudioProcessorEditor::pageName(Page page)
 
 bool BeatShoreBridgeAudioProcessorEditor::pageIsBuilt(Page page)
 {
-    return page == Page::Overview || page == Page::Transcribe;
+    return page == Page::Overview || page == Page::Transcribe || page == Page::Humanize;
 }
 
 void BeatShoreBridgeAudioProcessorEditor::showPage(Page page)
@@ -304,7 +348,8 @@ void BeatShoreBridgeAudioProcessorEditor::updateControlVisibility()
 {
     const bool isOverview = currentPage == Page::Overview;
     const bool isTranscribe = currentPage == Page::Transcribe;
-    const bool isComingSoon = !isOverview && !isTranscribe;
+    const bool isHumanize = currentPage == Page::Humanize;
+    const bool isComingSoon = !isOverview && !isTranscribe && !isHumanize;
 
     for (auto* c : { &hostSectionLabel, &sampleRateLabel, &blockSizeLabel, &tempoLabel, &timeSigLabel, &transportLabel, &playheadLabel })
         c->setVisible(isOverview);
@@ -316,8 +361,26 @@ void BeatShoreBridgeAudioProcessorEditor::updateControlVisibility()
              &transcribeStatusLabel, &transcribeDetailLabel, &openExportFolderButton })
         c->setVisible(isTranscribe);
 
+    for (auto* c : std::initializer_list<juce::Component*>{
+             &humanizeSectionLabel, &humanizeExplainerLabel,
+             &timingSlider, &timingSliderLabel, &velocitySlider, &velocitySliderLabel,
+             &dynamicsSlider, &dynamicsSliderLabel, &articulationSlider, &articulationSliderLabel,
+             &preserveGrooveToggle })
+        c->setVisible(isHumanize);
+
     comingSoonTitleLabel.setVisible(isComingSoon);
     comingSoonBodyLabel.setVisible(isComingSoon);
+}
+
+void BeatShoreBridgeAudioProcessorEditor::humanizeControlsChanged()
+{
+    HumanizeSettings settings;
+    settings.timing = float(timingSlider.getValue() / 100.0);
+    settings.velocity = float(velocitySlider.getValue() / 100.0);
+    settings.dynamics = float(dynamicsSlider.getValue() / 100.0);
+    settings.articulation = float(articulationSlider.getValue() / 100.0);
+    settings.preserveGroove = preserveGrooveToggle.getToggleState();
+    processor.setHumanizeSettings(settings);
 }
 
 void BeatShoreBridgeAudioProcessorEditor::drawPanel(juce::Graphics& g, juce::Rectangle<float> bounds,
@@ -407,6 +470,10 @@ void BeatShoreBridgeAudioProcessorEditor::paint(juce::Graphics& g)
         drawPanel(g, bridgePanelBounds, liveColour, bridgeStatus == BridgeStatus::Connected ? 4.0f : 2.0f);
         drawPanel(g, quickAnalysisPanelBounds, juce::Colour(kAccent), 2.0f);
         drawPanel(g, transcribePanelBounds, juce::Colour(kAccent), 2.0f);
+    }
+    else if (currentPage == Page::Humanize)
+    {
+        drawPanel(g, humanizePanelBounds, juce::Colour(kAccent), 2.0f);
     }
     else
     {
@@ -528,6 +595,32 @@ void BeatShoreBridgeAudioProcessorEditor::resized()
         transcribeDetailLabel.setBounds(transcribeInner.removeFromTop(64));
         transcribeInner.removeFromTop(6);
         openExportFolderButton.setBounds(transcribeInner.removeFromTop(28));
+    }
+    else if (currentPage == Page::Humanize)
+    {
+        humanizePanelBounds = content.toFloat();
+        auto inner = content.reduced(16, 14);
+        humanizeSectionLabel.setBounds(inner.removeFromTop(16));
+        inner.removeFromTop(6);
+        humanizeExplainerLabel.setBounds(inner.removeFromTop(50));
+        inner.removeFromTop(18);
+
+        auto knobRow = inner.removeFromTop(110);
+        const int knobCount = 4;
+        const int knobWidth = knobRow.getWidth() / knobCount;
+        auto layoutKnob = [&](juce::Slider& s, juce::Label& l)
+        {
+            auto cell = knobRow.removeFromLeft(knobWidth);
+            l.setBounds(cell.removeFromTop(16));
+            s.setBounds(cell.reduced(12, 0));
+        };
+        layoutKnob(timingSlider, timingSliderLabel);
+        layoutKnob(velocitySlider, velocitySliderLabel);
+        layoutKnob(dynamicsSlider, dynamicsSliderLabel);
+        layoutKnob(articulationSlider, articulationSliderLabel);
+
+        inner.removeFromTop(16);
+        preserveGrooveToggle.setBounds(inner.removeFromTop(26));
     }
     else
     {

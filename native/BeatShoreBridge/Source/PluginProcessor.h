@@ -103,6 +103,14 @@ public:
     CaptureTriggerResult triggerBassTranscription();
     CaptureTriggerResult triggerLeadTranscription();
 
+    // Set from the editor's Humanize page; applied to whichever
+    // MIDI-producing kind is triggered NEXT (not retroactively to an
+    // already-completed transcription -- there is no live-editable note
+    // buffer in this plugin, only "set your amounts, then transcribe").
+    // Message-thread only, same as every trigger* method.
+    void setHumanizeSettings(HumanizeSettings settings) { humanizeSettings = settings; }
+    HumanizeSettings getHumanizeSettings() const { return humanizeSettings; }
+
     bool isAnalysisInFlight() const;
     double getAnalysisProgress() const; // 0..1, meaningful only while isAnalysisInFlight()
 
@@ -156,6 +164,7 @@ private:
     CaptureTriggerResult triggerAnalysisOfKind(const juce::String& kind, const juce::String& role = juce::String());
 
     HostSnapshot hostSnapshot;
+    HumanizeSettings humanizeSettings; // all-zero default -- see setHumanizeSettings()
 
     std::unique_ptr<BridgeClient> bridgeClient;
 

@@ -53,6 +53,14 @@ struct AnalysisJob
     std::atomic<bool> resourcesReleased { false }; // guards releaseJobResources() so tempAudioPath is deleted and reservedAudioBytes is released exactly once, no matter which of several possible code paths reaches this job's terminal state first
     double tempo = 0.0;        // 0 = not provided (role/tempo, same optional fields ANALYSIS_REQUEST always had)
     std::string role;
+
+    // Optional humanization amounts (0.0-1.0, 0 = not provided/not
+    // requested), forwarded to analyze.js's dsp.applyHumanization() for
+    // the three MIDI-producing kinds only -- see that function's own
+    // comment for what each one actually does. Same "0 = absent" convention
+    // as tempo above, not a separate bool per field.
+    double humanizeTiming = 0.0, humanizeVelocity = 0.0, humanizeDynamics = 0.0, humanizeArticulation = 0.0;
+    bool preserveGroove = false;
     std::atomic<JobState> state { JobState::Queued };
 
     // Set by whichever worker thread picks this job up (Queued->Running),

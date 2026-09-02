@@ -113,7 +113,11 @@ public:
     // ignores it; passing it for e.g. "tempo" is harmless (main.cpp only
     // forwards a non-empty role at all, and analyze.js only reads it for
     // transcribeMono).
-    bool requestAnalysis(const std::vector<float>& interleaved, uint32_t sampleRate, uint32_t channels, uint32_t frames, const juce::String& kind, const juce::String& audioSource, const juce::String& trackName = juce::String(), const juce::String& role = juce::String())
+    // humanize: all-zero (default) means "not requested" -- forwarded to
+    // the desktop only when isActive() is true (see handleAnalysisRequest()
+    // below), so a caller that never passes one behaves exactly as before
+    // this feature existed.
+    bool requestAnalysis(const std::vector<float>& interleaved, uint32_t sampleRate, uint32_t channels, uint32_t frames, const juce::String& kind, const juce::String& audioSource, const juce::String& trackName = juce::String(), const juce::String& role = juce::String(), HumanizeSettings humanize = {})
     {
         if (status.load() != BridgeStatus::Connected) return false;
         if (requestInFlight.exchange(true)) return false;
@@ -137,7 +141,7 @@ public:
         // collide (see PROTOCOL.md, STATUS.md's "Multiple plugin
         // instances").
         std::lock_guard<std::mutex> lock(requestMutex);
-        pendingRequest = PendingRequest { interleaved, sampleRate, channels, frames, kind.toStdString(), audioSource.toStdString(), juce::Uuid().toString().toStdString(), trackName.toStdString(), role.toStdString() };
+        pendingRequest = PendingRequest { interleaved, sampleRate, channels, frames, kind.toStdString(), audioSource.toStdString(), juce::Uuid().toString().toStdString(), trackName.toStdString(), role.toStdString(), humanize };
         return true;
     }
 
@@ -187,6 +191,7 @@ private:
         std::string requestId;
         std::string trackName;
         std::string role; // only meaningful for transcribeMono ("bass" narrows the pitch range, anything else/empty uses the default lead-ish range) -- see analyze.js
+        HumanizeSettings humanize; // all-zero (default) = not requested -- see its own comment in BridgeTypes.h
     };
 
     static constexpr const char* PIPE_NAME = "\\\\.\\pipe\\BeatShoreBridge.v1";
@@ -393,6 +398,14 @@ private:
         msg.set("audioSource", req.audioSource);
         if (!req.trackName.empty()) msg.set("hostTrackName", req.trackName);
         if (!req.role.empty()) msg.set("role", req.role);
+        if (req.humanize.isActive())
+        {
+            if (req.humanize.timing > 0.0f) msg.set("humanizeTiming", double(req.humanize.timing));
+            if (req.humanize.velocity > 0.0f) msg.set("humanizeVelocity", double(req.humanize.velocity));
+            if (req.humanize.dynamics > 0.0f) msg.set("humanizeDynamics", double(req.humanize.dynamics));
+            if (req.humanize.articulation > 0.0f) msg.set("humanizeArticulation", double(req.humanize.articulation));
+            if (req.humanize.preserveGroove) msg.set("preserveGroove", req.humanize.preserveGroove);
+        }
 
         if (!pipe->writeLine(bsjson::stringify(msg)))
         {
@@ -540,6 +553,7 @@ private:
                     r.midiWriteError = resp.has("midiWriteError") ? resp["midiWriteError"].asString() : "";
                     r.midiSizeBytes = resp.has("midiSizeBytes") ? int(resp["midiSizeBytes"].asNumber()) : -1;
                     r.midiGeneratedAt = resp.has("midiGeneratedAt") ? resp["midiGeneratedAt"].asString() : "";
+                    r.humanizeApplied = resp.has("humanizeApplied") ? resp["humanizeApplied"].asBool() : false;
                     r.message = std::to_string(r.noteCount) + " notes"
                         + (r.midiPath.empty() ? "" : (" -> " + r.midiPath));
                 }

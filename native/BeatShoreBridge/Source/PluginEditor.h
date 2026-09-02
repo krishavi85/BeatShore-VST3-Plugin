@@ -7,14 +7,16 @@
 
 // Sidebar-navigated reorganization of the editor, structurally modeled on
 // the "BeatShore Reverse Studio" design blueprint the user shared (see
-// STATUS.md's "Eighteenth" section) -- WITHOUT pretending any of that
-// blueprint's unbuilt features (stem separation, spectral repair,
-// humanization, sound matching, mixing/mastering, AI chat) exist. Only two
-// of the ten sidebar sections have real content: Overview (host context
-// readouts) and Transcribe (every analysis/transcription trigger this
-// plugin actually has). The other eight show an explicit, honest
-// "not built yet" state -- never a working-looking control wired to
-// nothing.
+// STATUS.md's "Eighteenth"/"Nineteenth" sections) -- WITHOUT pretending any
+// of that blueprint's unbuilt features (stem separation, spectral repair,
+// sound matching, mixing/mastering, AI chat) exist. Three of the ten
+// sidebar sections have real content: Overview (host context readouts),
+// Transcribe (every analysis/transcription trigger this plugin actually
+// has), and Humanize (real, honest, non-ML parameterized randomization
+// applied to whichever MIDI-producing kind is triggered next -- see
+// dsp.applyHumanization() in beatshore-dsp.js). The other seven show an
+// explicit, honest "not built yet" state -- never a working-looking
+// control wired to nothing.
 //
 // Every juce::Label/juce::TextButton below is the SAME control this editor
 // has always had, wired to the SAME PluginProcessor calls
@@ -61,6 +63,12 @@ private:
     void bassButtonClicked();
     void leadButtonClicked();
 
+    // Called on every Humanize-page slider/toggle change -- reads all four
+    // sliders + the toggle and pushes them to processor.setHumanizeSettings()
+    // in one call, so the processor's copy is always exactly what the
+    // sliders currently show (no partial-update drift between controls).
+    void humanizeControlsChanged();
+
     // ---- Sidebar navigation -----------------------------------------
     // Overview/Transcribe are real pages; the other eight are the
     // blueprint's own remaining sections, each showing the shared
@@ -69,7 +77,7 @@ private:
     enum class Page { Overview, Separate, Repair, Transcribe, Reconstruct, Humanize, SoundMatch, Mix, Master, Export };
     static constexpr int kNumPages = 10;
     static const char* pageName(Page);
-    static bool pageIsBuilt(Page); // true only for Overview/Transcribe
+    static bool pageIsBuilt(Page); // true for Overview/Transcribe/Humanize
     void showPage(Page);
     void updateControlVisibility(); // sets setVisible() on every page's controls to match currentPage -- geometry stays whatever resized() last computed for the active page
 
@@ -120,14 +128,26 @@ private:
     juce::TextButton openExportFolderButton;
     juce::String lastMidiPath; // empty until a MIDI_RESULT with a written file arrives
 
+    // ---- Humanize page ---------------------------------------------
+    // Real, parameterized note-level randomization (see
+    // dsp.applyHumanization()'s own comment for exactly what each slider
+    // does) -- NOT a learned humanization model, and NOT applied
+    // retroactively to a result already on the Transcribe page: there is
+    // no live-editable note buffer in this plugin, only "set your amounts
+    // here, then go trigger a transcription."
+    juce::Label humanizeSectionLabel, humanizeExplainerLabel;
+    juce::Slider timingSlider, velocitySlider, dynamicsSlider, articulationSlider;
+    juce::Label timingSliderLabel, velocitySliderLabel, dynamicsSliderLabel, articulationSliderLabel;
+    juce::ToggleButton preserveGrooveToggle;
+
     // ---- Shared "not built yet" page (Separate/Repair/Reconstruct/
-    // Humanize/Sound Match/Mix/Master/Export) -------------------------
+    // Sound Match/Mix/Master/Export) -----------------------------------
     juce::Label comingSoonTitleLabel, comingSoonBodyLabel;
 
     // Card-panel bounds computed once in resized(), read back in paint() to
     // draw the glowing background behind each section -- geometry only,
     // doesn't affect any control's actual bounds/hit-testing.
-    juce::Rectangle<float> hostPanelBounds, bridgePanelBounds, quickAnalysisPanelBounds, transcribePanelBounds, comingSoonPanelBounds;
+    juce::Rectangle<float> hostPanelBounds, bridgePanelBounds, quickAnalysisPanelBounds, transcribePanelBounds, humanizePanelBounds, comingSoonPanelBounds;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatShoreBridgeAudioProcessorEditor)
 };

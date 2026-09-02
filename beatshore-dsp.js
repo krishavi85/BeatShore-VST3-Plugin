@@ -512,6 +512,71 @@ export function humanizeStats(notes, tempo) {
   };
 }
 
+function clamp01(x) { const v = Number(x); return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0; }
+
+// Real, honest about what it is: a parameterized randomization applied to
+// an already-transcribed note list, NOT a learned humanization model --
+// the inverse of humanizeStats() above (which *measures* how
+// human/quantized a performance already is; this one *adds* controlled
+// variation). Each knob is 0..1 (the UI sends a 0-100% slider / 100):
+//   timing: per-note timing jitter, scaled to a fraction of a 16th note
+//     (using the same tempo-relative grid humanizeStats() itself uses,
+//     so the two functions agree on what "one grid unit" means).
+//   velocity: per-note velocity jitter, multiplicative, bounded to the
+//     real MIDI 1-127 range.
+//   dynamics: a slow, whole-phrase velocity contour (a gentle arc,
+//     louder mid-phrase) -- deliberately distinct from velocity's
+//     per-note noise, so the two controls do visibly different things
+//     rather than both just adding more randomness to the same knob.
+//   articulation: per-note duration jitter -- shortens/lengthens notes
+//     for a staccato/legato feel.
+//   preserveGroove: halves the timing jitter's magnitude so small
+//     per-note offsets stay closer to each note's own original position
+//     rather than letting them compound into audible drift across a long
+//     phrase -- keeps the transcribed performance's overall groove/tempo
+//     feel intact while still adding real micro-timing variation.
+// seed: optional -- same notes + same seed + same amounts always produces
+// the same output (a real xorshift32 PRNG, not Math.random()), so a
+// result is reproducible on request; omit for a fresh random result each
+// call. Returns a NEW array; never mutates the input notes.
+export function applyHumanization(notes, opts) {
+  if (!notes || !notes.length) return notes || [];
+  const timing = clamp01(opts && opts.timing);
+  const velocity = clamp01(opts && opts.velocity);
+  const dynamics = clamp01(opts && opts.dynamics);
+  const articulation = clamp01(opts && opts.articulation);
+  const preserveGroove = !!(opts && opts.preserveGroove);
+  const tempo = (opts && opts.tempo) || 120;
+  const sixteenth = (60 / tempo) / 4;
+
+  let seed = (opts && Number.isFinite(opts.seed)) ? (opts.seed >>> 0) : ((Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0);
+  const rand = () => { // xorshift32 -- fast, deterministic given a seed, no external dependency
+    seed ^= seed << 13; seed >>>= 0;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5; seed >>>= 0;
+    return seed / 0xffffffff;
+  };
+  const signedRand = () => rand() * 2 - 1; // -1..1
+
+  const timingScale = sixteenth * (preserveGroove ? 0.25 : 0.5); // max per-note shift at timing=1.0
+  const n = notes.length;
+
+  return notes.map((note, i) => {
+    const timingJitter = signedRand() * timing * timingScale;
+    const velocityJitter = signedRand() * velocity * 0.35; // up to +-35% at velocity=1.0
+    const contour = Math.sin((i / Math.max(1, n - 1)) * Math.PI) * 0.5 + 0.5; // 0..1, peaks mid-phrase
+    const dynamicsShape = (contour - 0.5) * dynamics * 0.4;
+    const articulationJitter = 1 + signedRand() * articulation * 0.3; // duration scale 0.7x..1.3x at articulation=1.0
+
+    return {
+      ...note,
+      time: Math.max(0, note.time + timingJitter),
+      vel: Math.round(Math.max(1, Math.min(127, note.vel * (1 + velocityJitter + dynamicsShape)))),
+      dur: Math.max(0.02, (note.dur || 0.1) * articulationJitter),
+    };
+  });
+}
+
 // -------------------------------------------------------------- exporters --
 
 export function encodeWAV(buf) {

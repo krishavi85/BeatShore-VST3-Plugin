@@ -285,6 +285,68 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     preserveGrooveToggle.onClick = [this] { humanizeControlsChanged(); };
     addAndMakeVisible(preserveGrooveToggle);
 
+    // --- Mix page ---------------------------------------------------
+    // A real 3-band EQ + Compressor + Limiter running in processBlock() on
+    // the live audio through this plugin (see MixChain.h) -- the first Mix
+    // page control set bound to genuine AudioProcessorParameters rather
+    // than a plugin-local setting, so every control here is constructed
+    // first and then handed to a *ParameterAttachment, which is what
+    // actually sets its range and keeps it in sync with the host
+    // parameter (see sendInitialUpdate() below) -- not slider.setRange()
+    // by hand the way the Humanize knobs above are.
+    styleHeading(mixSectionLabel, "MIX (EQ / COMPRESSOR / LIMITER -- LIVE ON THIS PLUGIN'S AUDIO)");
+    addAndMakeVisible(mixSectionLabel);
+
+    styleValue(mixExplainerLabel);
+    mixExplainerLabel.setFont(juce::Font(juce::FontOptions(11.5f)));
+    mixExplainerLabel.setColour(juce::Label::textColourId, juce::Colour(kTextDim));
+    mixExplainerLabel.setText(
+        "Real juce::dsp EQ/Compressor/Limiter processing this plugin's own audio in the host, right "
+        "now -- not a request to BeatShore Desktop like every other page. Fixed band centres (150 Hz "
+        "/ 1 kHz / 6 kHz shelf+peak) and fixed compressor attack/release; every gain, threshold, and "
+        "ratio below is a real host-automatable parameter.",
+        juce::dontSendNotification);
+    mixExplainerLabel.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(mixExplainerLabel);
+
+    mixEnabledToggle.setButtonText("Mix Enabled (unticked = bypass, original signal passes through unchanged)");
+    mixEnabledToggle.setColour(juce::ToggleButton::textColourId, juce::Colour(kTextPrime));
+    mixEnabledToggle.setColour(juce::ToggleButton::tickColourId, juce::Colour(kLive));
+    addAndMakeVisible(mixEnabledToggle);
+    mixEnabledAttachment = std::make_unique<juce::ButtonParameterAttachment>(processor.getMixEnabledParameter(), mixEnabledToggle);
+    mixEnabledAttachment->sendInitialUpdate();
+
+    auto setupMixKnob = [this](juce::Slider& slider, juce::Label& label, const juce::String& name,
+                                std::unique_ptr<juce::SliderParameterAttachment>& attachment, juce::RangedAudioParameter& param)
+    {
+        slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 18);
+        slider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(kLive));
+        slider.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(kAccentDim));
+        slider.setColour(juce::Slider::thumbColourId, juce::Colour(kAccent));
+        slider.setColour(juce::Slider::textBoxTextColourId, juce::Colour(kTextPrime));
+        slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        addAndMakeVisible(slider);
+
+        styleHeading(label, name);
+        label.setJustificationType(juce::Justification::centred);
+        addAndMakeVisible(label);
+
+        // Constructed AFTER the slider is fully styled and visible -- its
+        // constructor reads param.getNormalisableRange()/getDefaultValue()
+        // to set the slider's actual range/step/double-click-reset value,
+        // so it must run after setSliderStyle()/setTextBoxStyle() (which
+        // don't touch range) but is otherwise order-independent of styling.
+        attachment = std::make_unique<juce::SliderParameterAttachment>(param, slider);
+        attachment->sendInitialUpdate();
+    };
+    setupMixKnob(eqLowShelfSlider, eqLowShelfLabel, "LOW SHELF", eqLowShelfAttachment, processor.getEqLowShelfGainParameter());
+    setupMixKnob(eqMidPeakSlider, eqMidPeakLabel, "MID PEAK", eqMidPeakAttachment, processor.getEqMidPeakGainParameter());
+    setupMixKnob(eqHighShelfSlider, eqHighShelfLabel, "HIGH SHELF", eqHighShelfAttachment, processor.getEqHighShelfGainParameter());
+    setupMixKnob(compThresholdSlider, compThresholdLabel, "COMP THRESH", compThresholdAttachment, processor.getCompThresholdParameter());
+    setupMixKnob(compRatioSlider, compRatioLabel, "COMP RATIO", compRatioAttachment, processor.getCompRatioParameter());
+    setupMixKnob(limiterThresholdSlider, limiterThresholdLabel, "LIMITER", limiterThresholdAttachment, processor.getLimiterThresholdParameter());
+
     // Wider than the single-column layout this replaced -- room for the
     // sidebar alongside a page's content. Height sized for the taller of
     // the real pages (Transcribe); Overview/Humanize/the placeholder pages
@@ -321,7 +383,7 @@ const char* BeatShoreBridgeAudioProcessorEditor::pageName(Page page)
 
 bool BeatShoreBridgeAudioProcessorEditor::pageIsBuilt(Page page)
 {
-    return page == Page::Overview || page == Page::Transcribe || page == Page::Humanize;
+    return page == Page::Overview || page == Page::Transcribe || page == Page::Humanize || page == Page::Mix;
 }
 
 void BeatShoreBridgeAudioProcessorEditor::showPage(Page page)
@@ -349,7 +411,8 @@ void BeatShoreBridgeAudioProcessorEditor::updateControlVisibility()
     const bool isOverview = currentPage == Page::Overview;
     const bool isTranscribe = currentPage == Page::Transcribe;
     const bool isHumanize = currentPage == Page::Humanize;
-    const bool isComingSoon = !isOverview && !isTranscribe && !isHumanize;
+    const bool isMix = currentPage == Page::Mix;
+    const bool isComingSoon = !isOverview && !isTranscribe && !isHumanize && !isMix;
 
     for (auto* c : { &hostSectionLabel, &sampleRateLabel, &blockSizeLabel, &tempoLabel, &timeSigLabel, &transportLabel, &playheadLabel })
         c->setVisible(isOverview);
@@ -367,6 +430,13 @@ void BeatShoreBridgeAudioProcessorEditor::updateControlVisibility()
              &dynamicsSlider, &dynamicsSliderLabel, &articulationSlider, &articulationSliderLabel,
              &preserveGrooveToggle })
         c->setVisible(isHumanize);
+
+    for (auto* c : std::initializer_list<juce::Component*>{
+             &mixSectionLabel, &mixExplainerLabel, &mixEnabledToggle,
+             &eqLowShelfSlider, &eqLowShelfLabel, &eqMidPeakSlider, &eqMidPeakLabel,
+             &eqHighShelfSlider, &eqHighShelfLabel, &compThresholdSlider, &compThresholdLabel,
+             &compRatioSlider, &compRatioLabel, &limiterThresholdSlider, &limiterThresholdLabel })
+        c->setVisible(isMix);
 
     comingSoonTitleLabel.setVisible(isComingSoon);
     comingSoonBodyLabel.setVisible(isComingSoon);
@@ -474,6 +544,10 @@ void BeatShoreBridgeAudioProcessorEditor::paint(juce::Graphics& g)
     else if (currentPage == Page::Humanize)
     {
         drawPanel(g, humanizePanelBounds, juce::Colour(kAccent), 2.0f);
+    }
+    else if (currentPage == Page::Mix)
+    {
+        drawPanel(g, mixPanelBounds, juce::Colour(kLive), 2.0f);
     }
     else
     {
@@ -621,6 +695,33 @@ void BeatShoreBridgeAudioProcessorEditor::resized()
 
         inner.removeFromTop(16);
         preserveGrooveToggle.setBounds(inner.removeFromTop(26));
+    }
+    else if (currentPage == Page::Mix)
+    {
+        mixPanelBounds = content.toFloat();
+        auto inner = content.reduced(16, 14);
+        mixSectionLabel.setBounds(inner.removeFromTop(16));
+        inner.removeFromTop(6);
+        mixExplainerLabel.setBounds(inner.removeFromTop(64));
+        inner.removeFromTop(10);
+        mixEnabledToggle.setBounds(inner.removeFromTop(24));
+        inner.removeFromTop(18);
+
+        auto knobRow = inner.removeFromTop(110);
+        const int knobCount = 6;
+        const int knobWidth = knobRow.getWidth() / knobCount;
+        auto layoutKnob = [&](juce::Slider& s, juce::Label& l)
+        {
+            auto cell = knobRow.removeFromLeft(knobWidth);
+            l.setBounds(cell.removeFromTop(16));
+            s.setBounds(cell.reduced(6, 0));
+        };
+        layoutKnob(eqLowShelfSlider, eqLowShelfLabel);
+        layoutKnob(eqMidPeakSlider, eqMidPeakLabel);
+        layoutKnob(eqHighShelfSlider, eqHighShelfLabel);
+        layoutKnob(compThresholdSlider, compThresholdLabel);
+        layoutKnob(compRatioSlider, compRatioLabel);
+        layoutKnob(limiterThresholdSlider, limiterThresholdLabel);
     }
     else
     {

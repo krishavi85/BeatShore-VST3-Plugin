@@ -9,14 +9,17 @@
 // the "BeatShore Reverse Studio" design blueprint the user shared (see
 // STATUS.md's "Eighteenth"/"Nineteenth" sections) -- WITHOUT pretending any
 // of that blueprint's unbuilt features (stem separation, spectral repair,
-// sound matching, mixing/mastering, AI chat) exist. Three of the ten
-// sidebar sections have real content: Overview (host context readouts),
-// Transcribe (every analysis/transcription trigger this plugin actually
-// has), and Humanize (real, honest, non-ML parameterized randomization
-// applied to whichever MIDI-producing kind is triggered next -- see
-// dsp.applyHumanization() in beatshore-dsp.js). The other seven show an
-// explicit, honest "not built yet" state -- never a working-looking
-// control wired to nothing.
+// sound matching, mastering, AI chat) exist. Four of the ten sidebar
+// sections have real content: Overview (host context readouts), Transcribe
+// (every analysis/transcription trigger this plugin actually has),
+// Humanize (real, honest, non-ML parameterized randomization applied to
+// whichever MIDI-producing kind is triggered next -- see
+// dsp.applyHumanization() in beatshore-dsp.js), and Mix (a real EQ +
+// Compressor + Limiter -- see MixChain.h -- running live on this plugin's
+// own audio in processBlock(), the first page whose controls are genuine
+// host AudioProcessorParameters rather than a plugin-local setting). The
+// other six show an explicit, honest "not built yet" state -- never a
+// working-looking control wired to nothing.
 //
 // Every juce::Label/juce::TextButton below is the SAME control this editor
 // has always had, wired to the SAME PluginProcessor calls
@@ -28,7 +31,9 @@
 // its header rather than buried in one tab), does not change what happens
 // when a button is clicked or what a status label's text means.
 // PluginProcessor.h/.cpp, BridgeClient.h, the protocol, and the desktop
-// broker are untouched by this change.
+// broker are untouched by the reorg itself; Mix is the one page that DOES
+// add new real state to PluginProcessor (MixChain + 6 parameters), all in
+// processBlock()'s own audio path, not the analysis/broker path at all.
 class BeatShoreBridgeAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                    private juce::Timer
 {
@@ -77,7 +82,7 @@ private:
     enum class Page { Overview, Separate, Repair, Transcribe, Reconstruct, Humanize, SoundMatch, Mix, Master, Export };
     static constexpr int kNumPages = 10;
     static const char* pageName(Page);
-    static bool pageIsBuilt(Page); // true for Overview/Transcribe/Humanize
+    static bool pageIsBuilt(Page); // true for Overview/Transcribe/Humanize/Mix
     void showPage(Page);
     void updateControlVisibility(); // sets setVisible() on every page's controls to match currentPage -- geometry stays whatever resized() last computed for the active page
 
@@ -140,14 +145,36 @@ private:
     juce::Label timingSliderLabel, velocitySliderLabel, dynamicsSliderLabel, articulationSliderLabel;
     juce::ToggleButton preserveGrooveToggle;
 
+    // ---- Mix page -------------------------------------------------------
+    // The first Mix-page feature that's a REAL AudioProcessorParameter, not
+    // a plugin-local setting like Humanize's sliders -- so these bind via
+    // juce::SliderParameterAttachment/ButtonParameterAttachment (declared in
+    // juce_audio_processors' juce_ParameterAttachments.h, plain juce
+    // namespace -- not juce::dsp, despite what the DSP chain itself lives
+    // in) directly to the RangedAudioParameter&s PluginProcessor exposes
+    // (getEqLowShelfGainParameter() etc.), the idiomatic JUCE mechanism:
+    // host automation, undo, and value-changed sync are all handled by the
+    // attachment object itself (it even pulls the slider's range/step from
+    // the parameter's own NormalisableRange in its constructor), not
+    // reimplemented with a slider listener and a manual
+    // setHumanizeSettings()-style push like the Humanize page uses. See
+    // MixChain.h for what these six numbers actually drive.
+    juce::Label mixSectionLabel, mixExplainerLabel;
+    juce::ToggleButton mixEnabledToggle;
+    juce::Slider eqLowShelfSlider, eqMidPeakSlider, eqHighShelfSlider, compThresholdSlider, compRatioSlider, limiterThresholdSlider;
+    juce::Label eqLowShelfLabel, eqMidPeakLabel, eqHighShelfLabel, compThresholdLabel, compRatioLabel, limiterThresholdLabel;
+    std::unique_ptr<juce::ButtonParameterAttachment> mixEnabledAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> eqLowShelfAttachment, eqMidPeakAttachment, eqHighShelfAttachment,
+                                                      compThresholdAttachment, compRatioAttachment, limiterThresholdAttachment;
+
     // ---- Shared "not built yet" page (Separate/Repair/Reconstruct/
-    // Sound Match/Mix/Master/Export) -----------------------------------
+    // Sound Match/Master/Export) -----------------------------------
     juce::Label comingSoonTitleLabel, comingSoonBodyLabel;
 
     // Card-panel bounds computed once in resized(), read back in paint() to
     // draw the glowing background behind each section -- geometry only,
     // doesn't affect any control's actual bounds/hit-testing.
-    juce::Rectangle<float> hostPanelBounds, bridgePanelBounds, quickAnalysisPanelBounds, transcribePanelBounds, humanizePanelBounds, comingSoonPanelBounds;
+    juce::Rectangle<float> hostPanelBounds, bridgePanelBounds, quickAnalysisPanelBounds, transcribePanelBounds, humanizePanelBounds, mixPanelBounds, comingSoonPanelBounds;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatShoreBridgeAudioProcessorEditor)
 };

@@ -2798,6 +2798,109 @@ clean-machine-tested installer -- are unchanged from before: still real,
 still open, still need a decision and a second machine respectively, not
 something this session can close alone.
 
+### Twentieth: real EQ/Compressor/Limiter -- the second real DSP vertical from the design blueprint, and the first with genuine host parameters
+
+Continuing the same "build exactly one real vertical completely, refuse
+the ML-requiring parts" approach as Humanize: the user asked for the
+blueprint's Mix page (EQ/compression/limiting) built "completely too, the
+same way." Unlike Humanize, this is a fundamentally different *kind* of
+feature -- not a request sent to BeatShore Desktop and a result read back
+later, but real-time signal processing run directly in this plugin's own
+`processBlock()`, on whatever audio the host is already passing through
+it, using `juce_dsp`'s own production classes (`juce::dsp::IIR::Filter`,
+`Compressor`, `Limiter`) rather than hand-rolled math.
+
+**What's real**: `Source/MixChain.h` (new file) -- a
+`juce::dsp::ProcessorChain` of three `ProcessorDuplicator<IIR::Filter,
+IIR::Coefficients>` stages (low shelf @150Hz, mid peak @1kHz, high shelf
+@6kHz, each fixed-Q) followed by a `Compressor<float>` and a
+`Limiter<float>`, in that order. `PluginProcessor` gained seven real
+`AudioProcessorParameter`s (`mixEnabledParam` plus six floats: EQ low/mid/
+high gain, compressor threshold/ratio, limiter threshold) -- genuine host
+parameters added via `addParameter()`, not plugin-local settings the way
+Humanize's amounts are, so they show up in the host's own automation lanes
+and are saved/restored with host automation the same as any other
+parameter (JUCE's default `AudioProcessor` state handling covers this;
+nothing custom was needed). `prepareToPlay()` builds a `ProcessSpec` and
+calls `mixChain.prepare()`; `processBlock()` reads the seven parameters
+every block (only recomputing IIR coefficients when the EQ gains actually
+changed, to avoid needless work) and calls `mixChain.process(block,
+!mixEnabledParam->get())`.
+
+The editor's Mix page is the **first page whose controls are genuine host
+parameters** rather than a plugin-local setting pushed through a single
+`setXSettings()` call -- six real `juce::Slider` rotary knobs and one
+`juce::ToggleButton`, each bound with `juce::SliderParameterAttachment`/
+`juce::ButtonParameterAttachment` (JUCE's own idiomatic mechanism,
+declared in `juce_ParameterAttachments.h`) directly to the
+`RangedAudioParameter&`s `PluginProcessor` now exposes
+(`getEqLowShelfGainParameter()` etc.). The attachment reads the
+parameter's own `NormalisableRange`/default value to set the slider's
+range and reset value -- confirmed by reading the attachment's own
+constructor in `juce_ParameterAttachments.cpp`, not assumed -- so host
+automation, undo, and UI sync are all handled by JUCE itself.
+`pageIsBuilt()` now includes `Page::Mix`; the other six sections (Separate,
+Repair, Reconstruct, Sound Match, Master, Export) still show the honest
+"NOT BUILT YET" panel, for the same reasons stated in the Nineteenth
+section.
+
+**Verified two ways:**
+1. Clean rebuild of `BeatShoreBridge.vst3` (juce_dsp newly linked, zero
+   warnings) and the Steinberg Validator, still **47/47** -- worth calling
+   out specifically because, unlike Humanize, this feature adds seven
+   genuinely new `AudioProcessorParameter`s to the plugin, which is
+   exactly the kind of change that can break a host's parameter
+   enumeration/automation contract; the Validator re-running clean
+   confirms it didn't.
+2. A new standalone console test, `MixChainTest`
+   (`native/BridgeClientTest/Source/mixchain_test.cpp`), that includes the
+   REAL `MixChain.h` directly (unmodified) and feeds it synthetic sine
+   tones through real `juce::dsp::AudioBlock`s block-by-block, exactly how
+   `processBlock()` does -- because this feature has no protocol round
+   trip at all, `feature_smoke_test.cpp`'s "send a request, check the
+   response" approach (used for the analysis-kinds and Humanize features)
+   cannot exercise it; the only way to prove real audio processing is
+   happening is to measure real before/after signal differences directly.
+   **8/8 checks passed**, each printing a genuine measured number, not
+   just PASS/FAIL:
+   - Bypass leaves audio bit-exact even with extreme EQ/comp/limiter
+     settings dialed in.
+   - `+12dB`/`-12dB` high-shelf settings raise/lower an 8kHz tone's RMS by
+     a real measured `+9.12dB`/`-9.11dB` (not the full nominal 12dB --
+     expected and correctly explained by the shelf's Q0.7 slope at that
+     frequency, not a bug).
+   - An 8:1 compressor measurably reduces a sustained tone's RMS by a real
+     measured `-7.75dB` once its 15ms attack settles.
+   - The limiter's hard `[-1,1]` output ceiling holds on a genuinely
+     clipping 1.5x-full-scale input at two different threshold settings,
+     **and** its threshold parameter has a real, measurable effect
+     (`0.232` vs `0.520` output RMS) on a moderate, non-clipping input --
+     split into two separate checks specifically because reading
+     `juce_Limiter.cpp` directly revealed `juce::dsp::Limiter` is a
+     "loudness maximizer" (always-on internal -10dB/4:1 compression stage
+     plus an automatic makeup-gain multiply, unconditionally hard-clipped
+     at the very end) rather than a simple "clamp above threshold X" --
+     the first version of this test assumed the latter, got two genuinely
+     confusing failures, and was corrected to test what the DSP actually
+     does instead of loosened until it passed. That correction is real
+     engineering content, not just test hygiene: it's the same "loudness
+     maximizer" behavior a REAPER user will actually hear if they push the
+     limiter threshold around, so the plugin's own explainer text was
+     written to match this reality (fixed compressor attack/release,
+     fixed EQ band centers, no claim that the limiter threshold acts as a
+     hard dB ceiling).
+
+**Not yet verified**: actually turning the six knobs in REAPER's own UI
+and confirming an audible EQ/compression/limiting effect on real playing
+audio, and confirming host automation (recording/playing back automation
+on these new parameters) works end-to-end in a real DAW session -- the
+same category of gap noted for Humanize, since this environment has no
+way to drive a native Windows GUI or listen to audio. `MixChainTest`
+proves the DSP genuinely transforms audio and that the parameters are
+correctly wired to it; it does not and cannot exercise
+`SliderParameterAttachment`/`ButtonParameterAttachment`'s own UI-thread
+code the way dragging a real knob would.
+
 ### First round (for reference)
 
 - **No Inno Setup installed in this environment**, so the script has never

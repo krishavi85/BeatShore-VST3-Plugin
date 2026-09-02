@@ -170,3 +170,27 @@ target_link_libraries(MultiSessionTest
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
 )
+
+# Direct, no-protocol verification of MixChain.h (native/BeatShoreBridge/
+# Source/MixChain.h) -- the real EQ/Compressor/Limiter header
+# PluginProcessor.cpp drives in processBlock(), included here unmodified.
+# Every other test in this file proves something over the IPC protocol;
+# this one can't use that approach at all since Mix is pure audio-domain
+# DSP with no request/response round trip -- see Source/mixchain_test.cpp's
+# own header comment for the four checks it runs.
+juce_add_console_app(MixChainTest PRODUCT_NAME "MixChainTest")
+
+target_sources(MixChainTest PRIVATE Source/mixchain_test.cpp)
+
+target_compile_definitions(MixChainTest
+    PRIVATE
+        JucePlugin_VersionString="0.1.0-mixchaintest"
+)
+
+target_link_libraries(MixChainTest
+    PRIVATE
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags
+)

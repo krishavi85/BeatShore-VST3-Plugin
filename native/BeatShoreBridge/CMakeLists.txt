@@ -33,6 +33,7 @@ target_sources(BeatShoreBridge
         Source/PluginEditor.cpp
         Source/BridgeClient.h
         Source/BridgeTypes.h
+        Source/MixChain.h
 )
 
 target_compile_definitions(BeatShoreBridge
@@ -58,6 +59,13 @@ endif()
 target_link_libraries(BeatShoreBridge
     PRIVATE
         juce::juce_audio_utils
+        # juce_dsp: real-time EQ/Compressor/Limiter (native/BeatShoreBridge/
+        # Source/MixChain.h) run in processBlock() itself, processing the
+        # live audio actually flowing through this plugin in the host --
+        # not a separate analysis request to the desktop broker like every
+        # other feature so far. Already vendored in native/JUCE, no new
+        # dependency to fetch.
+        juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

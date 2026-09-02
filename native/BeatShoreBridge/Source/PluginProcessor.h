@@ -5,6 +5,7 @@
 #include <mutex>
 #include <vector>
 #include "BridgeTypes.h"
+#include "MixChain.h"
 
 class BridgeClient;
 
@@ -110,6 +111,24 @@ public:
     // Message-thread only, same as every trigger* method.
     void setHumanizeSettings(HumanizeSettings settings) { humanizeSettings = settings; }
     HumanizeSettings getHumanizeSettings() const { return humanizeSettings; }
+
+    // Real host-automatable parameters (see the header comment on mixChain
+    // below) -- exposed so the editor's Mix page can bind real
+    // juce::SliderParameterAttachment/ButtonParameterAttachment objects
+    // directly to them (the correct, idiomatic JUCE way to connect a UI
+    // control to an AudioProcessorParameter -- proper thread-safety,
+    // automation gesture recording, and bidirectional sync all handled by
+    // JUCE itself, not reimplemented here) rather than PluginProcessor
+    // exposing its own get/set wrapper methods the way HumanizeSettings
+    // above does, since these genuinely are host parameters and
+    // Humanize's amounts are not.
+    juce::RangedAudioParameter& getMixEnabledParameter() { return *mixEnabledParam; }
+    juce::RangedAudioParameter& getEqLowShelfGainParameter() { return *eqLowShelfGainParam; }
+    juce::RangedAudioParameter& getEqMidPeakGainParameter() { return *eqMidPeakGainParam; }
+    juce::RangedAudioParameter& getEqHighShelfGainParameter() { return *eqHighShelfGainParam; }
+    juce::RangedAudioParameter& getCompThresholdParameter() { return *compThresholdParam; }
+    juce::RangedAudioParameter& getCompRatioParameter() { return *compRatioParam; }
+    juce::RangedAudioParameter& getLimiterThresholdParameter() { return *limiterThresholdParam; }
 
     bool isAnalysisInFlight() const;
     double getAnalysisProgress() const; // 0..1, meaningful only while isAnalysisInFlight()
@@ -225,6 +244,36 @@ private:
     juce::AudioParameterBool* triggerAnalysisParam = nullptr;
     bool lastTriggerParamValue = false;    // audio thread only
     std::atomic<bool> triggerRequestedByHost { false };
+
+    // Real EQ/Compressor/Limiter run in processBlock() itself (see
+    // MixChain.h) on this plugin's own live audio -- unlike every trigger*
+    // method above, this isn't a request to the desktop broker, it's this
+    // plugin's own signal processing. Every parameter here is a real,
+    // host-automatable AudioParameterFloat/Bool (addParameter()'d in the
+    // constructor, same pattern as triggerAnalysisParam above), read with
+    // the same cheap lock-free .get() every block. mixEnabledParam defaults
+    // to false and every gain/ratio/threshold defaults to a fully
+    // transparent value, so a session that never touches the Mix page gets
+    // audio identical to before this feature existed -- not just "close
+    // enough", bit-for-bit: processBlock() skips calling mixChain.process()
+    // entirely while mixEnabledParam is false, rather than relying on
+    // MixChain's own internal bypass path to be a no-op.
+    MixChain mixChain;
+    juce::AudioParameterBool* mixEnabledParam = nullptr;
+    juce::AudioParameterFloat* eqLowShelfGainParam = nullptr;
+    juce::AudioParameterFloat* eqMidPeakGainParam = nullptr;
+    juce::AudioParameterFloat* eqHighShelfGainParam = nullptr;
+    juce::AudioParameterFloat* compThresholdParam = nullptr;
+    juce::AudioParameterFloat* compRatioParam = nullptr;
+    juce::AudioParameterFloat* limiterThresholdParam = nullptr;
+    // Cached previous parameter values (audio thread only) -- MixChain's
+    // setters recompute real IIR coefficients, cheap but not free; only
+    // calling them when a value has actually changed since the last block
+    // avoids redoing that work ~every block for a slider nobody is moving,
+    // without needing any parameter-smoothing machinery this feature's
+    // scope doesn't call for.
+    float lastEqLowGain = 0.0f, lastEqMidGain = 0.0f, lastEqHighGain = 0.0f;
+    float lastCompThreshold = 0.0f, lastCompRatio = 1.0f, lastLimiterThreshold = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatShoreBridgeAudioProcessor)
 };

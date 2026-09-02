@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "BridgeClient.h"
 #include <algorithm>
+#include <limits>
 
 BeatShoreBridgeAudioProcessor::BeatShoreBridgeAudioProcessor()
     : AudioProcessor(BusesProperties()
@@ -19,6 +20,33 @@ BeatShoreBridgeAudioProcessor::BeatShoreBridgeAudioProcessor()
     triggerAnalysisParam = new juce::AudioParameterBool(
         juce::ParameterID { "triggerAnalysis", 1 }, "Trigger Analysis", false);
     addParameter(triggerAnalysisParam);
+
+    // Real EQ/Compressor/Limiter parameters (see MixChain.h and the header
+    // comment on mixChain below) -- every default is a fully transparent
+    // value (0dB gain, ratio 1:1, thresholds at 0dB) and mixEnabledParam
+    // itself defaults to false, so a session that never opens the Mix page
+    // gets audio identical to before this feature existed.
+    mixEnabledParam = new juce::AudioParameterBool(
+        juce::ParameterID { "mixEnabled", 1 }, "Mix Chain Enabled", false);
+    addParameter(mixEnabledParam);
+    eqLowShelfGainParam = new juce::AudioParameterFloat(
+        juce::ParameterID { "eqLowShelfGain", 1 }, "EQ Low Shelf Gain", -12.0f, 12.0f, 0.0f);
+    addParameter(eqLowShelfGainParam);
+    eqMidPeakGainParam = new juce::AudioParameterFloat(
+        juce::ParameterID { "eqMidPeakGain", 1 }, "EQ Mid Peak Gain", -12.0f, 12.0f, 0.0f);
+    addParameter(eqMidPeakGainParam);
+    eqHighShelfGainParam = new juce::AudioParameterFloat(
+        juce::ParameterID { "eqHighShelfGain", 1 }, "EQ High Shelf Gain", -12.0f, 12.0f, 0.0f);
+    addParameter(eqHighShelfGainParam);
+    compThresholdParam = new juce::AudioParameterFloat(
+        juce::ParameterID { "compThreshold", 1 }, "Compressor Threshold", -60.0f, 0.0f, 0.0f);
+    addParameter(compThresholdParam);
+    compRatioParam = new juce::AudioParameterFloat(
+        juce::ParameterID { "compRatio", 1 }, "Compressor Ratio", 1.0f, 20.0f, 1.0f);
+    addParameter(compRatioParam);
+    limiterThresholdParam = new juce::AudioParameterFloat(
+        juce::ParameterID { "limiterThreshold", 1 }, "Limiter Threshold", -12.0f, 0.0f, 0.0f);
+    addParameter(limiterThresholdParam);
 
     startTimerHz(10); // services triggerAnalysisParam regardless of whether an editor window is open -- see timerCallback()
 }
@@ -243,6 +271,19 @@ void BeatShoreBridgeAudioProcessor::prepareToPlay(double sampleRate, int samples
     swapRequested.store(false);
     bufferState[0].store(BufferState::Writing);
     bufferState[1].store(BufferState::Free);
+
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = sampleRate;
+    spec.maximumBlockSize = juce::uint32(samplesPerBlock);
+    spec.numChannels = juce::uint32(getTotalNumOutputChannels());
+    mixChain.prepare(spec);
+    // Force the cached-value change detection in processBlock() to push
+    // every current parameter value into the freshly (re)prepared chain on
+    // the very next block, rather than assuming a value unchanged since
+    // the last prepareToPlay() doesn't need re-applying to a possibly-new
+    // sample rate.
+    lastEqLowGain = lastEqMidGain = lastEqHighGain = std::numeric_limits<float>::quiet_NaN();
+    lastCompThreshold = lastCompRatio = lastLimiterThreshold = std::numeric_limits<float>::quiet_NaN();
 }
 
 void BeatShoreBridgeAudioProcessor::releaseResources()
@@ -352,6 +393,41 @@ void BeatShoreBridgeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffe
             const juce::int64 newFrames = juce::jmin<juce::int64>(activeFramesWritten.load(std::memory_order_relaxed) + numSamples, capacity);
             activeFramesWritten.store(newFrames, std::memory_order_relaxed);
         }
+    }
+
+    // Real EQ/Compressor/Limiter -- applied AFTER the capture above, so
+    // analysis (tempo/key/transcription/etc.) always sees the original,
+    // unprocessed audio exactly as it did before this feature existed;
+    // only the actual output sent back to the host is affected. Skipped
+    // entirely (not even MixChain::process()'s own internal bypass path)
+    // while mixEnabledParam->get() is false, so a session that never opens
+    // the Mix page costs this processBlock() nothing extra at all -- not
+    // "negligible", genuinely zero additional work.
+    if (mixEnabledParam->get())
+    {
+        // Every AudioParameterFloat::get() below is the same cheap,
+        // lock-free, real-time-safe read triggerAnalysisParam->get()
+        // already used -- no allocation, no lock, safe on this thread.
+        // Only actually pushed into MixChain (which recomputes real IIR
+        // coefficients) when a value has changed since the last block --
+        // see the header comment on the lastEq*/lastComp*/lastLimiter*
+        // cache members for why.
+        const float eqLow = eqLowShelfGainParam->get();
+        const float eqMid = eqMidPeakGainParam->get();
+        const float eqHigh = eqHighShelfGainParam->get();
+        const float compThresh = compThresholdParam->get();
+        const float compRatio = compRatioParam->get();
+        const float limiterThresh = limiterThresholdParam->get();
+
+        if (eqLow != lastEqLowGain) { mixChain.setEqLowShelfGainDb(eqLow); lastEqLowGain = eqLow; }
+        if (eqMid != lastEqMidGain) { mixChain.setEqMidPeakGainDb(eqMid); lastEqMidGain = eqMid; }
+        if (eqHigh != lastEqHighGain) { mixChain.setEqHighShelfGainDb(eqHigh); lastEqHighGain = eqHigh; }
+        if (compThresh != lastCompThreshold) { mixChain.setCompressorThresholdDb(compThresh); lastCompThreshold = compThresh; }
+        if (compRatio != lastCompRatio) { mixChain.setCompressorRatio(compRatio); lastCompRatio = compRatio; }
+        if (limiterThresh != lastLimiterThreshold) { mixChain.setLimiterThresholdDb(limiterThresh); lastLimiterThreshold = limiterThresh; }
+
+        juce::dsp::AudioBlock<float> block(buffer);
+        mixChain.process(block, false);
     }
 
     if (auto* hostPlayHead = getPlayHead())

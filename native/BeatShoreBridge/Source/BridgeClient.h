@@ -107,7 +107,13 @@ public:
     // collision-proofing still comes entirely from requestId's UUID below,
     // never from this string, so an empty/missing trackName (test callers,
     // or a host that doesn't report track names) is fine and expected.
-    bool requestAnalysis(const std::vector<float>& interleaved, uint32_t sampleRate, uint32_t channels, uint32_t frames, const juce::String& kind, const juce::String& audioSource, const juce::String& trackName = juce::String())
+    // role: only meaningful for kind == "transcribeMono" -- "bass" or "lead"
+    // (anything else, including empty, is treated as "lead" by both this
+    // class and the desktop's own main.cpp forwarding). Every other kind
+    // ignores it; passing it for e.g. "tempo" is harmless (main.cpp only
+    // forwards a non-empty role at all, and analyze.js only reads it for
+    // transcribeMono).
+    bool requestAnalysis(const std::vector<float>& interleaved, uint32_t sampleRate, uint32_t channels, uint32_t frames, const juce::String& kind, const juce::String& audioSource, const juce::String& trackName = juce::String(), const juce::String& role = juce::String())
     {
         if (status.load() != BridgeStatus::Connected) return false;
         if (requestInFlight.exchange(true)) return false;
@@ -131,7 +137,7 @@ public:
         // collide (see PROTOCOL.md, STATUS.md's "Multiple plugin
         // instances").
         std::lock_guard<std::mutex> lock(requestMutex);
-        pendingRequest = PendingRequest { interleaved, sampleRate, channels, frames, kind.toStdString(), audioSource.toStdString(), juce::Uuid().toString().toStdString(), trackName.toStdString() };
+        pendingRequest = PendingRequest { interleaved, sampleRate, channels, frames, kind.toStdString(), audioSource.toStdString(), juce::Uuid().toString().toStdString(), trackName.toStdString(), role.toStdString() };
         return true;
     }
 
@@ -180,6 +186,7 @@ private:
         std::string audioSource;
         std::string requestId;
         std::string trackName;
+        std::string role; // only meaningful for transcribeMono ("bass" narrows the pitch range, anything else/empty uses the default lead-ish range) -- see analyze.js
     };
 
     static constexpr const char* PIPE_NAME = "\\\\.\\pipe\\BeatShoreBridge.v1";
@@ -385,6 +392,7 @@ private:
         msg.set("audio", audio);
         msg.set("audioSource", req.audioSource);
         if (!req.trackName.empty()) msg.set("hostTrackName", req.trackName);
+        if (!req.role.empty()) msg.set("role", req.role);
 
         if (!pipe->writeLine(bsjson::stringify(msg)))
         {

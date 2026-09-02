@@ -29,7 +29,22 @@ private:
     void analyzeButtonClicked();
     void transcribeButtonClicked();
     void openExportFolderClicked();
-    void applyResult(const BridgeAnalysisResult&); // shared by both trigger buttons' polling
+    void applyResult(const BridgeAnalysisResult&); // shared by every trigger button's polling
+
+    // Same pattern as analyzeButtonClicked()/transcribeButtonClicked() above
+    // -- each just calls its own PluginProcessor::trigger*() method and
+    // writes the immediate CaptureTriggerResult text into the label that
+    // kind's eventual result lands in. Key/chords/loudness share
+    // quickResultLabel (a plain ANALYSIS_RESULT, same shape as tempo's own);
+    // drums/bass/lead share transcribeStatusLabel/transcribeDetailLabel --
+    // the same MIDI_RESULT labels the existing Transcribe Piano/Guitar
+    // button already writes to, since they're the identical result shape.
+    void keyButtonClicked();
+    void chordsButtonClicked();
+    void loudnessButtonClicked();
+    void drumsButtonClicked();
+    void bassButtonClicked();
+    void leadButtonClicked();
 
     // Presentation-only helpers -- read state, draw pixels, touch nothing
     // in PluginProcessor beyond the same read-only accessors timerCallback()
@@ -51,8 +66,19 @@ private:
     juce::TextButton analyzeTempoButton;
     juce::Label analysisResultLabel;
 
+    // New: exposes three analysis kinds the desktop engine has always
+    // supported (analyze.js's own SUPPORTED_KINDS) but that had no UI path
+    // before this change. Same plain-ANALYSIS_RESULT shape as tempo, so
+    // they share one result label rather than needing three -- clicking a
+    // different one overwrites the last shown result, the same way
+    // re-clicking Analyze Tempo already overwrites its own.
+    juce::Label quickAnalysisSectionLabel;
+    juce::TextButton keyButton, chordsButton, loudnessButton;
+    juce::Label quickResultLabel;
+
     juce::Label transcribeSectionLabel;
     juce::TextButton transcribeButton;
+    juce::TextButton drumsButton, bassButton, leadButton; // new -- same MIDI_RESULT shape/labels as transcribeButton above
     juce::Label transcribeStatusLabel;   // in-flight progress / terminal success-or-error state
     juce::Label transcribeDetailLabel;   // note count, processing time, algorithm, source
     juce::TextButton openExportFolderButton;
@@ -61,7 +87,7 @@ private:
     // Card-panel bounds computed once in resized(), read back in paint() to
     // draw the glowing background behind each section -- geometry only,
     // doesn't affect any control's actual bounds/hit-testing.
-    juce::Rectangle<float> hostPanelBounds, bridgePanelBounds, transcribePanelBounds;
+    juce::Rectangle<float> hostPanelBounds, bridgePanelBounds, quickAnalysisPanelBounds, transcribePanelBounds;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatShoreBridgeAudioProcessorEditor)
 };

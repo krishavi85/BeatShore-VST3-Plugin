@@ -2430,6 +2430,89 @@ this environment has no way to open a DAW GUI and look at pixels, so
 the visual result itself is still the user's own call to make, the same
 as every other REAPER-side verification this project has needed.
 
+### Seventeenth: five new analysis kinds exposed in the UI, wired to backend that already existed
+
+The user asked for more features. Before proposing anything, checked
+what was actually real: `analyze.js`'s own `SUPPORTED_KINDS` already
+listed nine kinds -- `loudness, tempo, key, structure, chords, timbre,
+transcribeDrums, transcribeMono, transcribePolyphonic` -- but the editor
+only ever exposed two (`tempo`, `transcribePolyphonic`). Asked the user
+which of the remaining seven they actually wanted rather than building
+all of them speculatively; they picked five: key, chords, loudness,
+transcribeDrums, and transcribeMono (both bass and lead roles).
+
+Read the whole call path first rather than guessing at scope. Found:
+`PluginProcessor` already has a private `triggerAnalysisOfKind(kind)`
+that `triggerTempoAnalysis()`/`triggerPolyphonicTranscription()` are
+just thin wrappers over; `BridgeClient.h`'s own response parsing already
+generically branches on wire message *type* (`MIDI_RESULT` vs
+`ANALYSIS_RESULT`), not a hardcoded kind list, and for a non-numeric
+`ANALYSIS_RESULT` (key's `{key,mode}` object, chords' segment array)
+already falls back to `bsjson::stringify(result)` as the message text.
+`main.cpp` already reads an incoming `role` field and forwards it to
+Node. **The entire backend and wire protocol already fully supported
+all five kinds end to end -- zero changes needed to `main.cpp`,
+`analyze.js`, or `beatshore-dsp.js`.** The only real gap: nothing on the
+plugin side ever *sent* a `role` field, which `transcribeMono` needs to
+pick bass vs. lead pitch range.
+
+Changes, all additive:
+- `BridgeClient.h`: `requestAnalysis()` gained an optional `role`
+  parameter, threaded through `PendingRequest` into the outgoing
+  `ANALYSIS_REQUEST`'s `role` field when non-empty.
+- `PluginProcessor.h/.cpp`: six new public wrapper methods
+  (`triggerKeyAnalysis`, `triggerChordAnalysis`, `triggerLoudnessAnalysis`,
+  `triggerDrumTranscription`, `triggerBassTranscription`,
+  `triggerLeadTranscription`), each a one-line call into
+  `triggerAnalysisOfKind()` -- byte-for-byte the same pattern
+  `triggerTempoAnalysis()` already used.
+- `PluginEditor.h/.cpp`: a new "Quick Analysis" card (Key/Chords/Loudness
+  buttons sharing one result label, since only one request is ever in
+  flight at a time -- the same UX the existing Analyze Tempo button
+  already has when clicked twice) and three new buttons in the
+  Transcription card (Drums/Bass/Lead), sharing the *existing*
+  `transcribeStatusLabel`/`transcribeDetailLabel` since they're the
+  identical `MIDI_RESULT` shape `transcribePolyphonic` already used.
+  `applyResult()`'s two-way `isTempo ? ... : assumeMIDI` branch became a
+  real three-way classification (tempo / MIDI-producing kinds / plain
+  value kinds) via an explicit `isMidiProducingKind()` kind check --
+  more correct than the old binary assumption, not just extended to fit.
+  Window grew again (480x760) for the new card and buttons; layout order
+  is unchanged apart from insertion.
+
+Verified three ways, in increasing order of how much they actually
+prove:
+1. Rebuilt clean (zero warnings), Steinberg Validator still **47/47** --
+   no new `AudioProcessorParameter`s were added, so this was expected to
+   hold, and did.
+2. **A real, throwaway smoke-test program** (compiled directly with
+   `cl.exe`, no CMake target added -- not part of the tracked project),
+   mirroring `load_boundary_test.cpp`'s own connect/HELLO/
+   `ANALYSIS_REQUEST` pattern, sent six real requests (a real 3s
+   two-tone signal, not silence) against a real running
+   `BeatShoreDesktop.exe`: key, chords, loudness, transcribeDrums,
+   transcribeMono/bass, transcribeMono/lead. **6/6 genuinely passed** --
+   real responses, not mocked: key detected "A major", chords detected
+   "Am", loudness read -15.1dB, drums found 100 onsets (expected for a
+   continuous tone, not percussive content -- proves the pathway works,
+   not that the *musical* result is meaningful for this input), both
+   mono roles returned real MIDI files. This is the first time this
+   project has verified these five kinds end-to-end at all, for any
+   caller.
+3. Deployed to the actual copy REAPER loads from
+   (`C:\Users\krish\AppData\Local\Programs\Common\VST3\BeatShore
+   Bridge.vst3`), confirmed byte-identical via SHA-256, same as the
+   reskin above.
+
+**Not yet confirmed**: clicking these new buttons from inside REAPER's
+own UI, and whether `role=bass` vs `role=lead` produces a genuinely
+different result for the same real audio (the smoke test's synthetic
+two-tone signal returned 1 note for both -- consistent with the request
+being accepted and processed correctly, not proof the pitch-range
+distinction itself is audibly meaningful; that needs real bass/lead
+recordings, which is exactly the kind of judgment call this environment
+can't make and REAPER testing already has a track record of answering).
+
 An external review of the first draft caught six genuine release blockers
 and a long list of real script issues, none of which had been caught by
 this project's own testing (which had focused on "does the staged engine

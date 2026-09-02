@@ -77,6 +77,32 @@ public:
     // analysis kinds actually have a UI path today.
     CaptureTriggerResult triggerTempoAnalysis();
     CaptureTriggerResult triggerPolyphonicTranscription();
+
+    // Same pattern as the two above -- thin wrappers over
+    // triggerAnalysisOfKind(), each just naming a kind the desktop's own
+    // analyze.js has always supported (see its SUPPORTED_KINDS) but that
+    // had no UI path until now. Result shape on the wire is identical to
+    // tempo's (a plain ANALYSIS_RESULT: a number or JSON-stringified value
+    // in BridgeAnalysisResult::message) -- no protocol change needed for
+    // these three.
+    CaptureTriggerResult triggerKeyAnalysis();
+    CaptureTriggerResult triggerChordAnalysis();
+    CaptureTriggerResult triggerLoudnessAnalysis();
+
+    // Same MIDI_RESULT shape as triggerPolyphonicTranscription() (noteCount,
+    // midiPath, etc. in BridgeAnalysisResult) -- transcribeDrums and
+    // transcribeMono already went through the identical desktop/engine code
+    // path as transcribePolyphonic (see analyze.js), just never had a
+    // trigger method. Bass/lead are two separate methods, not one with a
+    // parameter, matching the pattern above of the public API staying
+    // self-documenting about what's actually wired to the editor -- both
+    // call triggerAnalysisOfKind("transcribeMono", ...) with a different
+    // role ("bass" narrows the pitch range analyze.js searches; "lead"
+    // uses the default range).
+    CaptureTriggerResult triggerDrumTranscription();
+    CaptureTriggerResult triggerBassTranscription();
+    CaptureTriggerResult triggerLeadTranscription();
+
     bool isAnalysisInFlight() const;
     double getAnalysisProgress() const; // 0..1, meaningful only while isAnalysisInFlight()
 
@@ -122,10 +148,12 @@ private:
     // processBlock).
     SnapshotOutcome captureFrozenSnapshot(std::vector<float>& outInterleaved, float& outPeak);
 
-    // Shared by triggerTempoAnalysis()/triggerPolyphonicTranscription() --
-    // capture-and-send, parameterized only by which analysis kind to ask
-    // BridgeClient for.
-    CaptureTriggerResult triggerAnalysisOfKind(const juce::String& kind);
+    // Shared by every trigger* method above -- capture-and-send,
+    // parameterized by which analysis kind to ask BridgeClient for. role is
+    // only ever non-empty for triggerBassTranscription()/
+    // triggerLeadTranscription() -- see BridgeClient::requestAnalysis()'s
+    // own comment on it.
+    CaptureTriggerResult triggerAnalysisOfKind(const juce::String& kind, const juce::String& role = juce::String());
 
     HostSnapshot hostSnapshot;
 

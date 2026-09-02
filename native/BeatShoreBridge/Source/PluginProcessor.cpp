@@ -143,7 +143,7 @@ BeatShoreBridgeAudioProcessor::SnapshotOutcome BeatShoreBridgeAudioProcessor::ca
     return SnapshotOutcome::Ok;
 }
 
-BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcessor::triggerAnalysisOfKind(const juce::String& kind)
+BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcessor::triggerAnalysisOfKind(const juce::String& kind, const juce::String& role)
 {
     if (bridgeClient->getStatus() != BridgeStatus::Connected) return CaptureTriggerResult::NotConnected;
     if (bridgeClient->isRequestInFlight()) return CaptureTriggerResult::AlreadyInFlight;
@@ -155,7 +155,7 @@ BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcesso
     if (outcome != SnapshotOutcome::Ok) return CaptureTriggerResult::NoAudioCaptured;
     if (peak < 1.0e-4f) return CaptureTriggerResult::SilentAudio;
 
-    const bool started = bridgeClient->requestAnalysis(interleaved, uint32_t(captureSampleRate), 2, uint32_t(interleaved.size() / 2), kind, "live-captured", getHostTrackName());
+    const bool started = bridgeClient->requestAnalysis(interleaved, uint32_t(captureSampleRate), 2, uint32_t(interleaved.size() / 2), kind, "live-captured", getHostTrackName(), role);
     return started ? CaptureTriggerResult::Started : CaptureTriggerResult::AlreadyInFlight;
 }
 
@@ -179,6 +179,36 @@ BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcesso
 BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcessor::triggerPolyphonicTranscription()
 {
     return triggerAnalysisOfKind("transcribePolyphonic");
+}
+
+BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcessor::triggerKeyAnalysis()
+{
+    return triggerAnalysisOfKind("key");
+}
+
+BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcessor::triggerChordAnalysis()
+{
+    return triggerAnalysisOfKind("chords");
+}
+
+BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcessor::triggerLoudnessAnalysis()
+{
+    return triggerAnalysisOfKind("loudness");
+}
+
+BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcessor::triggerDrumTranscription()
+{
+    return triggerAnalysisOfKind("transcribeDrums");
+}
+
+BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcessor::triggerBassTranscription()
+{
+    return triggerAnalysisOfKind("transcribeMono", "bass");
+}
+
+BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcessor::triggerLeadTranscription()
+{
+    return triggerAnalysisOfKind("transcribeMono", "lead");
 }
 
 bool BeatShoreBridgeAudioProcessor::captureSnapshotForTest(std::vector<float>& outInterleaved, double& outSampleRate)

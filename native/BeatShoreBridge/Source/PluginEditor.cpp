@@ -147,12 +147,43 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     analysisResultLabel.setText("No analysis run yet.", juce::dontSendNotification);
     addAndMakeVisible(analysisResultLabel);
 
-    styleHeading(transcribeSectionLabel, "TRANSCRIPTION (PIANO / GUITAR)");
+    styleHeading(quickAnalysisSectionLabel, "QUICK ANALYSIS");
+    addAndMakeVisible(quickAnalysisSectionLabel);
+
+    keyButton.setButtonText("Key");
+    keyButton.onClick = [this] { keyButtonClicked(); };
+    addAndMakeVisible(keyButton);
+
+    chordsButton.setButtonText("Chords");
+    chordsButton.onClick = [this] { chordsButtonClicked(); };
+    addAndMakeVisible(chordsButton);
+
+    loudnessButton.setButtonText("Loudness");
+    loudnessButton.onClick = [this] { loudnessButtonClicked(); };
+    addAndMakeVisible(loudnessButton);
+
+    styleValue(quickResultLabel);
+    quickResultLabel.setText("No analysis run yet.", juce::dontSendNotification);
+    addAndMakeVisible(quickResultLabel);
+
+    styleHeading(transcribeSectionLabel, "TRANSCRIPTION (PIANO / GUITAR / DRUMS / BASS)");
     addAndMakeVisible(transcribeSectionLabel);
 
     transcribeButton.setButtonText("Transcribe Piano/Guitar (last 10s captured)");
     transcribeButton.onClick = [this] { transcribeButtonClicked(); };
     addAndMakeVisible(transcribeButton);
+
+    drumsButton.setButtonText("Transcribe Drums");
+    drumsButton.onClick = [this] { drumsButtonClicked(); };
+    addAndMakeVisible(drumsButton);
+
+    bassButton.setButtonText("Transcribe Bass");
+    bassButton.onClick = [this] { bassButtonClicked(); };
+    addAndMakeVisible(bassButton);
+
+    leadButton.setButtonText("Transcribe Lead");
+    leadButton.onClick = [this] { leadButtonClicked(); };
+    addAndMakeVisible(leadButton);
 
     styleValue(transcribeStatusLabel);
     transcribeStatusLabel.setText("No transcription run yet.", juce::dontSendNotification);
@@ -168,11 +199,11 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     openExportFolderButton.onClick = [this] { openExportFolderClicked(); };
     addAndMakeVisible(openExportFolderButton);
 
-    // Slightly larger than the previous 440x560 -- room for card-panel
-    // padding and the brand mark. Layout ORDER (title -> host context ->
-    // bridge -> transcription) is unchanged; resized() below just spaces
-    // it more generously.
-    setSize(480, 620);
+    // Grown again to fit the new Quick Analysis card and three new
+    // transcription buttons -- layout ORDER (title -> host context ->
+    // bridge -> quick analysis -> transcription) matches the order these
+    // sections were added in.
+    setSize(480, 760);
     startTimerHz(10);
     timerCallback();
 }
@@ -254,6 +285,7 @@ void BeatShoreBridgeAudioProcessorEditor::paint(juce::Graphics& g)
 
     drawPanel(g, hostPanelBounds, juce::Colour(kAccent), 2.0f);
     drawPanel(g, bridgePanelBounds, liveColour, bridgeStatus == BridgeStatus::Connected ? 4.0f : 2.0f);
+    drawPanel(g, quickAnalysisPanelBounds, juce::Colour(kAccent), 2.0f);
     drawPanel(g, transcribePanelBounds, juce::Colour(kAccent), 2.0f);
 
     // Status dot sits just left of the bridge status label, colour-coded by
@@ -316,6 +348,27 @@ void BeatShoreBridgeAudioProcessorEditor::resized()
 
     area.removeFromTop(14);
 
+    // --- Quick analysis card (key / chords / loudness) --------------------
+    auto quickArea = area.removeFromTop(120);
+    quickAnalysisPanelBounds = quickArea.toFloat();
+    auto quickInner = quickArea.reduced(14, 10);
+    quickAnalysisSectionLabel.setBounds(quickInner.removeFromTop(16));
+    quickInner.removeFromTop(6);
+    {
+        auto buttonRow = quickInner.removeFromTop(28);
+        const int gap = 6;
+        const int buttonWidth = (buttonRow.getWidth() - gap * 2) / 3;
+        keyButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+        buttonRow.removeFromLeft(gap);
+        chordsButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+        buttonRow.removeFromLeft(gap);
+        loudnessButton.setBounds(buttonRow);
+    }
+    quickInner.removeFromTop(8);
+    quickResultLabel.setBounds(quickInner.removeFromTop(30));
+
+    area.removeFromTop(14);
+
     // --- Transcription card -------------------------------------------------
     auto transcribeArea = area;
     transcribePanelBounds = transcribeArea.toFloat();
@@ -323,6 +376,17 @@ void BeatShoreBridgeAudioProcessorEditor::resized()
     transcribeSectionLabel.setBounds(transcribeInner.removeFromTop(16));
     transcribeInner.removeFromTop(6);
     transcribeButton.setBounds(transcribeInner.removeFromTop(28));
+    transcribeInner.removeFromTop(6);
+    {
+        auto buttonRow = transcribeInner.removeFromTop(28);
+        const int gap = 6;
+        const int buttonWidth = (buttonRow.getWidth() - gap * 2) / 3;
+        drumsButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+        buttonRow.removeFromLeft(gap);
+        bassButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+        buttonRow.removeFromLeft(gap);
+        leadButton.setBounds(buttonRow);
+    }
     transcribeInner.removeFromTop(6);
     transcribeStatusLabel.setBounds(transcribeInner.removeFromTop(30));
     transcribeDetailLabel.setBounds(transcribeInner.removeFromTop(64));
@@ -382,16 +446,72 @@ void BeatShoreBridgeAudioProcessorEditor::transcribeButtonClicked()
     transcribeDetailLabel.setText("", juce::dontSendNotification);
 }
 
+void BeatShoreBridgeAudioProcessorEditor::keyButtonClicked()
+{
+    quickResultLabel.setText(captureTriggerResultText(processor.triggerKeyAnalysis()), juce::dontSendNotification);
+}
+
+void BeatShoreBridgeAudioProcessorEditor::chordsButtonClicked()
+{
+    quickResultLabel.setText(captureTriggerResultText(processor.triggerChordAnalysis()), juce::dontSendNotification);
+}
+
+void BeatShoreBridgeAudioProcessorEditor::loudnessButtonClicked()
+{
+    quickResultLabel.setText(captureTriggerResultText(processor.triggerLoudnessAnalysis()), juce::dontSendNotification);
+}
+
+void BeatShoreBridgeAudioProcessorEditor::drumsButtonClicked()
+{
+    transcribeStatusLabel.setText(captureTriggerResultText(processor.triggerDrumTranscription()), juce::dontSendNotification);
+    transcribeDetailLabel.setText("", juce::dontSendNotification);
+}
+
+void BeatShoreBridgeAudioProcessorEditor::bassButtonClicked()
+{
+    transcribeStatusLabel.setText(captureTriggerResultText(processor.triggerBassTranscription()), juce::dontSendNotification);
+    transcribeDetailLabel.setText("", juce::dontSendNotification);
+}
+
+void BeatShoreBridgeAudioProcessorEditor::leadButtonClicked()
+{
+    transcribeStatusLabel.setText(captureTriggerResultText(processor.triggerLeadTranscription()), juce::dontSendNotification);
+    transcribeDetailLabel.setText("", juce::dontSendNotification);
+}
+
 void BeatShoreBridgeAudioProcessorEditor::openExportFolderClicked()
 {
     if (lastMidiPath.isEmpty()) return;
     juce::File(lastMidiPath).revealToUser();
 }
 
+namespace
+{
+    // MIDI_RESULT-shaped kinds (noteCount/midiPath/etc, same as
+    // transcribePolyphonic) vs everything else (a plain ANALYSIS_RESULT: a
+    // number or JSON-stringified value in result.message). See
+    // BridgeClient.h's own type == "MIDI_RESULT" branch, which this mirrors
+    // -- kept as an explicit kind list here (not e.g. "noteCount != -1")
+    // because a *failed* request never gets a noteCount at all, and errors
+    // still need to route to the right label.
+    bool isMidiProducingKind(const juce::String& kind)
+    {
+        return kind == "transcribePolyphonic" || kind == "transcribeDrums" || kind == "transcribeMono";
+    }
+}
+
 void BeatShoreBridgeAudioProcessorEditor::applyResult(const BridgeAnalysisResult& result)
 {
-    const bool isTempo = juce::String(result.kind) == "tempo";
-    juce::Label& statusLabel = isTempo ? analysisResultLabel : transcribeStatusLabel;
+    const juce::String kind(result.kind);
+    const bool isTempo = kind == "tempo";
+    const bool isMidiKind = isMidiProducingKind(kind);
+    // Three destinations, not two: tempo keeps its own label (unchanged
+    // from before this feature set), key/chords/loudness share
+    // quickResultLabel, and every MIDI-producing kind (piano/guitar, drums,
+    // bass, lead) shares transcribeStatusLabel -- the same routing rule
+    // Transcribe Piano/Guitar already used, just no longer hardcoded to
+    // "not tempo means MIDI".
+    juce::Label& statusLabel = isTempo ? analysisResultLabel : (isMidiKind ? transcribeStatusLabel : quickResultLabel);
 
     if (!result.success)
     {
@@ -408,14 +528,23 @@ void BeatShoreBridgeAudioProcessorEditor::applyResult(const BridgeAnalysisResult
         if (!result.errorCode.empty() && result.errorCode != "BROKER_SHUTTING_DOWN")
             text << " [" << result.errorCode << "]";
         statusLabel.setText(text, juce::dontSendNotification);
-        if (!isTempo) transcribeDetailLabel.setText("", juce::dontSendNotification);
+        if (isMidiKind) transcribeDetailLabel.setText("", juce::dontSendNotification);
         return;
     }
 
-    if (isTempo)
+    if (!isMidiKind)
     {
+        // tempo, key, chords, or loudness -- all the same plain
+        // ANALYSIS_RESULT shape. hasNumericValue is only ever true for the
+        // genuinely numeric kinds (tempo, loudness); key ({"key":"C",
+        // "mode":"major"}) and chords (a segment list) arrive as
+        // BridgeClient's own JSON-stringified fallback in result.message --
+        // shown as-is rather than hand-parsed here, matching this editor's
+        // existing "trust the message string" approach to every other
+        // result kind.
         juce::String text = result.hasNumericValue
-                                 ? "Tempo: " + juce::String(result.message) + " BPM"
+                                 ? (isTempo ? "Tempo: " + juce::String(result.message) + " BPM"
+                                            : juce::String(result.message))
                                  : juce::String(result.message);
         if (result.desktopTotalMs >= 0)
             text << " (" << result.desktopTotalMs << " ms)";
@@ -423,7 +552,8 @@ void BeatShoreBridgeAudioProcessorEditor::applyResult(const BridgeAnalysisResult
         return;
     }
 
-    // Polyphonic transcription (MIDI_RESULT).
+    // MIDI_RESULT: piano/guitar polyphonic transcription, drums, or mono
+    // bass/lead -- identical shape regardless of which one produced it.
     statusLabel.setText(result.noteCount > 0
                              ? juce::String(result.noteCount) + " notes found"
                              : "No notes detected in the captured audio.",
@@ -481,8 +611,9 @@ void BeatShoreBridgeAudioProcessorEditor::timerCallback()
 
     const bool inFlight = processor.isAnalysisInFlight();
     const bool canTrigger = bridgeStatus == BridgeStatus::Connected && !inFlight;
-    analyzeTempoButton.setEnabled(canTrigger);
-    transcribeButton.setEnabled(canTrigger);
+    for (auto* button : { &analyzeTempoButton, &transcribeButton, &keyButton, &chordsButton, &loudnessButton,
+                           &drumsButton, &bassButton, &leadButton })
+        button->setEnabled(canTrigger);
     captureStatusLabel.setText(processor.hasCapturedAudio() ? "Capture: audio buffered, ready to analyze" : "Capture: nothing buffered yet",
                                 juce::dontSendNotification);
 
@@ -490,17 +621,15 @@ void BeatShoreBridgeAudioProcessorEditor::timerCallback()
     {
         const int pct = juce::roundToInt(processor.getAnalysisProgress() * 100.0);
         // Only one request can be in flight at a time -- show the progress
-        // on whichever section's status label most recently said
-        // "Analyzing..." is close enough without threading the in-flight
-        // request's kind through the UI; both labels update together here
-        // since the reader can't tell which one started it, but only the
-        // one that actually shows "Analyzing..." reads as meaningfully "in
-        // progress" to the user.
+        // on whichever label most recently said "Analyzing..." is close
+        // enough without threading the in-flight request's kind through the
+        // UI; all three update together here since the reader can't tell
+        // which one started it, but only the one that actually shows
+        // "Analyzing..." reads as meaningfully "in progress" to the user.
         const juce::String progressText = "Analyzing... " + juce::String(pct) + "%";
-        if (analysisResultLabel.getText() == "Analyzing..." || analysisResultLabel.getText().startsWith("Analyzing... "))
-            analysisResultLabel.setText(progressText, juce::dontSendNotification);
-        if (transcribeStatusLabel.getText() == "Analyzing..." || transcribeStatusLabel.getText().startsWith("Analyzing... "))
-            transcribeStatusLabel.setText(progressText, juce::dontSendNotification);
+        for (auto* label : { &analysisResultLabel, &transcribeStatusLabel, &quickResultLabel })
+            if (label->getText() == "Analyzing..." || label->getText().startsWith("Analyzing... "))
+                label->setText(progressText, juce::dontSendNotification);
     }
 
     BridgeAnalysisResult result;

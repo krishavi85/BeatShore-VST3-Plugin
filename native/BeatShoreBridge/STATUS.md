@@ -3648,6 +3648,129 @@ installed; replacing the installer's placeholder `MyAppURL`
 URLs. Stem separation ("Separate") was explicitly deferred by the user
 until after all of the above and wasn't started.
 
+### Twenty-eighth: a real, minimal, DAC/EnCodec-free MT3 runtime -- traced, built, and proven correct (relocatable packaging still not done)
+
+Direct follow-up to the previous section's sizing work, per the user's
+explicit instructions: build a fresh minimal runtime from locked
+dependencies, remove only what real import tracing proves unnecessary,
+test the result with system Python off PATH, and accept it only once
+real MT3 inference, cancellation, MIDI export, and an installer-shaped
+self-test all pass from the staged files alone -- with DAC/EnCodec kept
+out entirely.
+
+**Real import tracing, not a static guess.** A script ran the exact same
+warm-up + a real `transcribe()` call `mt3_engine.py`'s own `main()`
+does, then read `sys.modules` afterward and mapped every genuinely
+imported module back to its owning installed distribution via
+`importlib.metadata`. Of 109 installed distributions in the original
+`ml_env`, 44 were actually touched; the other 65 (including all of
+`descript-audio-codec`/`descript-audiotools`/`encodec` themselves, and
+the `numba`/`matplotlib`/`jedi`/`tensorboard` research-tooling stack
+those two packages pull in as their own dependencies) were never
+imported by this code path.
+
+**A fresh venv, not a hand-pruned copy of the old one.** `pip show
+mt3-infer` was checked directly rather than assumed: its own declared
+`Requires:` list is `absl-py, einops, librosa, mido, mir-eval, numpy,
+pretty-midi, pyyaml, scipy, soundfile, soxr, torch, torchaudio,
+torchvision, tqdm, transformers` -- DAC/EnCodec's packages appear
+nowhere in it, confirming they were only ever present because the dev
+venv installs both feature sets side by side, not because MT3 needs
+them. A brand-new venv (same base Python 3.14.4 interpreter, same
+pinned `torch==2.14.0+cpu`/`torchaudio==2.11.0+cpu`/
+`torchvision==0.29.0+cpu` from the official CPU wheel index, then a
+plain `pip install mt3-infer==0.2.0`) naturally never installs
+DAC/EnCodec at all -- no exclusion list to hand-maintain.
+
+**Honest result: 1.4GB -> 1.3GB, not the larger cut the unused-
+distribution count suggested.** Most of the removed packages
+(`matplotlib`, the `ipython`/`jedi`/`traitlets` interactive-shell stack,
+`tensorboard`, `argbind`, `randomname`, `markdown2`, `ffmpy`, `fire`,
+`torch-stoi`/`pystoi`/`pyloudnorm`/`julius`) are each individually small;
+together they total roughly 100MB, not the ~250MB estimated from the
+raw distribution count alone. `numba`/`llvmlite` (147MB) turned out to
+be a genuine, unavoidable transitive dependency of `librosa` regardless
+of whether this specific code path imports them directly -- present,
+unchanged, in both venvs. The real takeaway: most of `ml_env`'s size
+(`torch` at 544MB above all) is honestly necessary weight for MT3 to
+run, not dead weight: the meaningful win here is correctness (DAC/
+EnCodec genuinely excluded) more than raw size.
+
+**Real functional proof, four separate real tests, not one:**
+1. Direct isolated test: the trimmed venv's own `python.exe`, invoked
+   exactly as `ChildProcessEngine.h` would (`-u`, `PYTHONUTF8=1`),
+   with every PATH directory that resolves a `python.exe`/`python3.exe`
+   stripped from that process first (confirmed via `Get-Command`
+   returning nothing, including the WindowsApps execution-alias
+   directory, which resolves `python.exe` without "python" appearing
+   in its own directory name -- an easy way to under-strip PATH and get
+   a false pass, checked for and avoided). Real `TRANSCRIBE` request,
+   real two-note melody, real `TRANSCRIBE_RESULT` with `noteCount: 2`,
+   real `.mid` file written.
+2. A real, previously-unknown Windows packaging risk found and
+   root-caused along the way: the very first version of this test
+   failed with `WinError 206: The filename or extension is too long`
+   loading `torch\lib\c10.dll` -- not a defect in the trim, but a
+   genuine legacy `MAX_PATH` (260-char) limit that torch's own DLL
+   loader hits, triggered specifically by this session's own unusually
+   deep scratchpad path (`AppData\Local\Temp\claude\<repo-name>\<uuid>\
+   scratchpad\...`). Confirmed by re-running the identical import from
+   a short path (`C:\bstest\...`) and getting a clean success --
+   isolates the cause precisely rather than leaving it ambiguous. Worth
+   carrying forward as a real constraint on wherever the eventual
+   installed `python\Lib\site-packages\torch\lib\` path ends up, and as
+   a case for adding Windows long-path-aware manifest declarations to
+   `BeatShoreDesktop.exe` as cheap defense-in-depth -- not yet done.
+3. A real installed-layout-shaped end-to-end test: a fresh directory at
+   a normal-length path, containing only a copy of `BeatShoreDesktop.exe`
+   and `mt3_engine.py` (deliberately no `dac_engine.py`/
+   `encodec_engine.py`, and no staged Node engine), with the trimmed
+   venv junctioned in as `ml_env` -- exercising `main.cpp`'s own real
+   dev-tree-fallback path resolution, not a hand-simulated stand-in.
+   `PythonRoutingE2ETest` against this real, running process: MT3
+   genuinely succeeds (`noteCount: 2`, real MIDI path); DAC/EnCodec
+   correctly and cleanly report `*_UNAVAILABLE` errors rather than
+   crashing or hanging, exactly the intended "kept out of the customer
+   installer" behavior, not an oversight.
+4. Real cancellation and recovery, against the trimmed venv
+   specifically (the mechanism itself was already proven against the
+   full `ml_env` earlier this session -- this is the first time it's
+   been exercised against the trimmed one): a genuinely in-flight
+   `transcribeMt3` request (confirmed running via a real
+   `ANALYSIS_PROGRESS` at 0.1 arriving first), cancelled mid-flight,
+   resolves as a real `CANCELLED` terminal message -- then a second,
+   fresh request immediately afterward completes normally
+   (`success: true`, `noteCount: 2`), proving the hard-cancel-and-
+   restart of the trimmed venv's own `python.exe` genuinely recovers,
+   not just that the cancel itself was acknowledged.
+
+**A second real, previously-undocumented gitignore gap found and fixed
+while cleaning up**: the trimmed venv (`ml_env_mt3_trimmed`) doesn't end
+in `_env`, so the project's own `*_env/` rule never covered it --
+`git status --ignored` showed it was excluded only by its own
+auto-generated per-venv `.gitignore`, the exact fragile mechanism the
+same rule's own comment already warned not to rely on (confirmed
+directly, not assumed: this is the same class of gap documented
+earlier this session for `.mt3_checkpoints/`). Fixed with an explicit
+entry rather than broadening the glob (a broader `*env*/` pattern risks
+swallowing real source directories that happen to contain "env" as a
+substring).
+
+**Not yet done -- the real remaining gap, stated plainly**: this venv is
+proven *correct*, not yet *relocatable*. Its `pyvenv.cfg` still points
+`home` at `C:\Python314` on this development machine -- a genuine
+customer install won't have that path, and the venv's own `python.exe`
+launcher stub needs it to find the base interpreter's DLL and stdlib.
+Converting this into something that survives being copied onto a
+machine that has never seen this project (most likely: the official
+Windows embeddable Python package, with this venv's proven `Lib/
+site-packages` copied onto it and its `._pth` file adjusted to enable
+site-packages) and wiring it into `build-release.ps1` as an actual Inno
+Setup optional component ("MT3 Model Pack") is real, scoped,
+well-understood work -- not started this session, to avoid rushing the
+one part of this that's genuinely still open after the parts above were
+verified as solid.
+
 ### First round (for reference)
 
 - **No Inno Setup installed in this environment**, so the script has never

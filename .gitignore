@@ -15,7 +15,18 @@ native/*/*/build/
 # Astral-managed Python distribution did NOT get one, and would have
 # been swept into a broad `git add` untracked-and-unnoticed). This
 # explicit rule doesn't rely on that per-venv file existing.
+#
+# The pattern is *_env/ (must END in "_env"), not *env*/ -- deliberately
+# narrow enough not to swallow real source directories that happen to
+# contain "env" as a substring. Caught for real, not hypothetically: a
+# venv named ml_env_mt3_trimmed (this session's MT3-only packaging
+# experiment -- see STATUS.md's most recent section) did NOT end in
+# "_env" and so was NOT covered by this rule, and was only accidentally
+# excluded by its own auto-generated per-venv .gitignore (the exact
+# fragile mechanism the paragraph above warns not to rely on) -- caught
+# by directly checking `git status --ignored`, not assumed safe.
 native/BeatShoreDesktop/python_engine/*_env/
+native/BeatShoreDesktop/python_engine/ml_env_mt3_trimmed/
 
 # Downloaded pretrained model weight caches (DAC/EnCodec cache under the
 # venvs' own torch hub dir, already covered above; MR-MT3's checkpoint

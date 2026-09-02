@@ -267,15 +267,29 @@ tracked in this table.
    STATUS.md's "Fourteenth" section for the full writeup.
 8. ~~Temp files from a session killed mid-request aren't cleaned up on
    the next startup.~~ Fixed 2026-08-29 — see "Current limitations".
-9. **MT3/DAC/EnCodec have no installer packaging.** The desktop broker's
-   Python-routed workers (real, working, verified end-to-end against a
-   dev-machine venv — see STATUS.md's Twenty-fifth/Twenty-sixth
-   sections) need a ~1.4GB PyTorch venv plus a 176MB model checkpoint
-   that `build-release.ps1` doesn't know to stage. An installed build
-   today has a fully working MT3 UI (button, real progress, cancel, MIDI
-   preview) that will reliably fail every request with a clear error,
-   since nothing behind it actually runs. The largest concrete gap
-   before a public release that ships MT3 as advertised.
+9. **MT3 has no installer packaging yet — but the runtime it needs is
+   now built, trimmed, and functionally proven.** A fresh, minimal,
+   DAC/EnCodec-free venv (1.3GB — `ml_env_mt3_trimmed`) was built from
+   real import tracing (44 distributions genuinely used out of 109) and
+   `mt3-infer`'s own declared dependencies, then proven correct via four
+   separate real tests: direct isolated inference with every
+   PATH-resolvable `python.exe` stripped, an installed-layout-shaped
+   end-to-end run through the real desktop process (MT3 succeeds,
+   DAC/EnCodec cleanly report unavailable rather than crashing), and a
+   genuine cancel-mid-flight-then-recover cycle — see STATUS.md's
+   Twenty-eighth section for the full account, including a real
+   Windows `MAX_PATH`/`WinError 206` finding along the way. What's
+   still missing is purely mechanical: this venv's `pyvenv.cfg` still
+   points at a fixed path on this development machine (`C:\Python314`)
+   that won't exist on a customer's — it needs converting into something
+   genuinely relocatable (most likely the official Windows embeddable
+   Python package with this venv's proven `site-packages` copied onto
+   it) and wiring into `build-release.ps1`/`BeatShoreSetup.iss` as an
+   actual optional "MT3 Model Pack" component. An installed build today
+   still has a fully working MT3 UI (button, real progress, cancel, MIDI
+   preview) that fails every request with a clear error, since nothing
+   behind it ships yet — but what ships behind it once packaging is
+   wired up is now a known, tested quantity, not an open question.
 
 ## Deferred decisions
 

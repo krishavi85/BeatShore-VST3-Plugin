@@ -37,11 +37,23 @@
 // only; the child's ends are ordinary synchronous handles (the child has
 // no idea its stdin/stdout are named pipes rather than anonymous ones --
 // from its side they behave identically).
+// NOMINMAX before windows.h: without it, windows.h's own min/max MACROS
+// shadow std::min/std::max for every translation unit that includes this
+// header transitively -- hit directly by a real caller (mt3_engine_test.cpp
+// using std::min in ordinary arithmetic failed to compile with a cryptic
+// "illegal token on right side of ::" once this header pulled windows.h
+// in). JUCE-based targets don't hit this (JUCE itself defines NOMINMAX
+// project-wide), but this header is also used by plain console-app test
+// targets with no JUCE GUI modules, where nothing else defines it first.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <string>
 #include <vector>
 #include <memory>
 #include <atomic>
+#include <cstring>
 #include "../../protocol/OverlappedPipeIO.h"
 
 class ChildProcessEngine
@@ -55,7 +67,21 @@ public:
     // human-readable identifier (e.g. "Node", "Python") folded into the
     // pipe name purely for uniqueness and log-readability -- has no
     // protocol meaning.
-    bool start(const std::string& exePath, const std::vector<std::string>& args, const std::string& tag)
+    // extraEnv: "KEY=VALUE" strings ADDED ON TOP of this process's own
+    // inherited environment (not a replacement of it -- the child still
+    // needs PATH, TEMP, etc.). Exists specifically for PythonEngine's own
+    // PYTHONUTF8=1 (see that class's own header comment): a plain
+    // CreateProcessA(..., nullptr, ...) call inherits the environment
+    // unchanged, and this project's own dev/test invocations don't
+    // reliably have PYTHONUTF8 set in the environment Mt3EngineTest.exe
+    // itself happens to run under -- confirmed directly: the first real
+    // end-to-end MT3 run crashed on a genuine UnicodeEncodeError from a
+    // library's own progress/status print hitting MSVC's default (non-
+    // UTF-8) console codepage. Setting it HERE, once, for every Python
+    // child this class ever spawns is more robust than relying on every
+    // script or every caller's own shell environment to have it set.
+    bool start(const std::string& exePath, const std::vector<std::string>& args, const std::string& tag,
+               const std::vector<std::string>& extraEnv = {})
     {
         const DWORD pid = GetCurrentProcessId();
         const unsigned instance = nextInstanceId.fetch_add(1, std::memory_order_relaxed);
@@ -115,7 +141,37 @@ public:
         std::vector<char> cmdLineBuf(cmdLine.begin(), cmdLine.end());
         cmdLineBuf.push_back('\0');
 
-        BOOL ok = CreateProcessA(nullptr, cmdLineBuf.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &pi);
+        // Build the child's environment block: this process's own inherited
+        // environment, verbatim, plus extraEnv appended -- an ANSI env
+        // block is a run of null-terminated "KEY=VALUE" strings ending in
+        // one extra null. Passing nullptr here (as this class did before
+        // extraEnv existed) means "inherit unchanged"; building this block
+        // explicitly only when extraEnv is non-empty keeps that original,
+        // already-proven behavior exactly the same for every existing
+        // caller (NodeEngine) that never passes extraEnv at all.
+        std::vector<char> envBlock;
+        LPVOID lpEnvironment = nullptr;
+        if (!extraEnv.empty())
+        {
+            LPCH inherited = GetEnvironmentStringsA();
+            if (inherited != nullptr)
+            {
+                const char* p = inherited;
+                while (*p != '\0') // each entry is itself null-terminated; the block ends at an entry of length 0
+                {
+                    size_t len = std::strlen(p);
+                    envBlock.insert(envBlock.end(), p, p + len + 1); // include the entry's own null terminator
+                    p += len + 1;
+                }
+                FreeEnvironmentStringsA(inherited);
+            }
+            for (const auto& kv : extraEnv)
+                envBlock.insert(envBlock.end(), kv.begin(), kv.end()), envBlock.push_back('\0');
+            envBlock.push_back('\0'); // final block terminator
+            lpEnvironment = envBlock.data();
+        }
+
+        BOOL ok = CreateProcessA(nullptr, cmdLineBuf.data(), nullptr, nullptr, TRUE, 0, lpEnvironment, nullptr, &si, &pi);
         // The child inherited its own copies of these; the parent's copies
         // must close regardless of success so nothing is left holding the
         // pipe open on the child's behalf.

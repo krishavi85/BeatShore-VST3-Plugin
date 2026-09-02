@@ -357,3 +357,35 @@ target_link_libraries(DacEngineTest
     PRIVATE juce::juce_core
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags
 )
+
+# Proves PythonEngine.h drives the REAL MR-MT3 transcription model
+# (mt3-infer, MIT code + MIT weights -- both confirmed directly, see
+# STATUS.md) end-to-end: a real BSM1 input file (BeatShoreDesktop's own
+# raw-audio temp format), a real TRANSCRIBE request, a real MIDI file
+# checked afterward for real note content. Points at the dedicated
+# Python 3.12 venv (mt3_env) mt3-infer was actually installed into.
+juce_add_console_app(Mt3EngineTest PRODUCT_NAME "Mt3EngineTest")
+target_sources(Mt3EngineTest PRIVATE Source/mt3_engine_test.cpp)
+target_compile_definitions(Mt3EngineTest
+    PRIVATE
+        JucePlugin_VersionString="0.1.0-mt3enginetest"
+        MT3_ENGINE_SCRIPT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreDesktop/python_engine/mt3_engine.py"
+        # mt3-infer's MR-MT3 backend is PyTorch-based, so it was installed
+        # into ml_env (the same venv as DAC/EnCodec) -- NOT mt3_env, which
+        # holds the abandoned JAX/t5x attempt (see STATUS.md's
+        # "Twenty-fourth" section for why that path is blocked).
+        MT3_PYTHON_EXE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreDesktop/python_engine/ml_env/Scripts/python.exe"
+)
+target_link_libraries(Mt3EngineTest
+    PRIVATE juce::juce_core
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags
+)
+
+# Definitive end-to-end proof of main.cpp's real Python-engine request
+# routing: a real HELLO handshake, a real ANALYSIS_REQUEST with real
+# shared-memory audio, against a REAL, already-running BeatShoreDesktop.exe
+# built with this session's routing changes -- same "thin, direct raw
+# client" approach as LoadBoundaryTest below, no JUCE dependency needed
+# either.
+add_executable(PythonRoutingE2ETest Source/python_routing_e2e_test.cpp)
+target_compile_features(PythonRoutingE2ETest PRIVATE cxx_std_17)

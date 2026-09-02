@@ -6,13 +6,19 @@ own header comment for the full protocol), loading the actual pretrained
 NDJSON lines.
 """
 import json
+import os
 import sys
 import warnings
 
 # See encodec_engine.py's own header comment for why this must run before
 # importing torch/dac -- the exact same stderr-corrupts-the-NDJSON-stream
-# bug, same fix.
+# bug, same fix, plus the stronger general stdout-redirect fix (see
+# mt3_engine.py's own header comment for where that one was actually
+# needed) applied here too for consistency.
 warnings.filterwarnings("ignore")
+_real_stdout = sys.stdout
+sys.stdout = open(os.devnull, "w")
+sys.stderr = open(os.devnull, "w")
 
 import torch
 import dac
@@ -20,8 +26,8 @@ import soundfile as sf
 
 
 def send(message: dict) -> None:
-    sys.stdout.write(json.dumps(message) + "\n")
-    sys.stdout.flush()
+    _real_stdout.write(json.dumps(message) + "\n")
+    _real_stdout.flush()
 
 
 def load_model() -> "dac.DAC":

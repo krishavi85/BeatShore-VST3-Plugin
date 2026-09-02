@@ -3289,6 +3289,122 @@ That integration, and a decision on what DAC/EnCodec's actual BeatShore
 feature is (still not defined -- see the Twenty-third section), remain
 open next steps.
 
+### Twenty-fifth: MT3 unblocked via a vetted unofficial PyTorch port, and all three Python engines actually wired into `main.cpp`'s real request routing
+
+The user's explicit instruction this round had two parts: "pursue the
+unofficial PyTorch MT3 port you flagged" (the open decision left at the
+end of the Twenty-fourth section) "and wire the main.cpp's real request
+routing" (the "not yet done" left at the end of that same section). Both
+are now genuinely done, verified against a real running desktop process,
+not just against each engine's own isolated test.
+
+**MT3, via a vetted unofficial port -- license-audited the same way the
+Twenty-third section's audit was done, not skipped this time.** Checked
+three real candidates against their actual LICENSE files and actual
+HuggingFace model cards, not general reputation:
+- `rlax59us/MT3-pytorch` -- **rejected**: no LICENSE file (all rights
+  reserved by default), no pretrained weights shipped, and the repo's own
+  README says "Usage: Not done yet".
+- `kunato/mt3-pytorch` -- **rejected**: real working inference code and
+  real pretrained weights, but still no LICENSE file anywhere in the repo
+  -- unlicensed code carries no permission to use, regardless of whether
+  it runs.
+- `openmirlab/mt3-infer` -- **adopted**: MIT-licensed own code, vendoring
+  a separate model (`gudgud1014/MR-MT3`) whose HuggingFace model card was
+  checked directly and is also MIT for both code and weights. This
+  project's own README is honest about the other two candidates too --
+  it flags `kunato`'s model by name as unlicensed and says not to use it,
+  which independently corroborates the same conclusion this audit
+  reached rather than being the only source for it.
+
+One real, easy-to-miss gotcha found only by reading the actual library
+source, not its docs: `mt3_infer.load_model()`/`transcribe()`'s `model`
+parameter **defaults to `"mt3_pytorch"`** -- the unlicensed `kunato` port
+-- not the licensed `mr_mt3` backend. `mt3_engine.py` (new) always passes
+`model="mr_mt3"` explicitly, with a header comment marking it as a "never
+remove this argument" line, since silently falling back to the default
+would mean shipping the exact model this audit just rejected.
+
+Verified for real via a new `Mt3EngineTest`
+(`native/BridgeClientTest/Source/mt3_engine_test.cpp`): writes a real
+two-note (C4/E4) melody in the desktop's own BSM1 shared-buffer format,
+drives the real `mt3_engine.py` through the real `PythonEngine.h`
+mechanism, and checks the real output MIDI file. **9/9 checks pass**,
+correctly recovering both input notes (60 and 64).
+
+**Three real, non-obvious Windows/Python bugs found and fixed at the
+shared `ChildProcessEngine.h`/`PythonEngine.h` layer, not patched
+per-script**, discovered by actually running the full pipeline end-to-end
+against the real MR-MT3 model rather than stopping once
+`Mt3EngineTest` alone passed:
+1. **Console UTF-8 encoding.** mt3-infer's checkpoint downloader prints a
+   `✓` character; MSVC's console defaults to the system codepage, not
+   UTF-8, so this raised `UnicodeEncodeError` and killed the child
+   process. Fixed by adding an `extraEnv` parameter to
+   `ChildProcessEngine::start()` (builds a real Win32 environment block
+   via `GetEnvironmentStringsA`/`CreateProcessA`, rather than mutating
+   the parent's own environment) and having `PythonEngine::start()`
+   always pass `PYTHONUTF8=1` -- fixed at the layer every current and
+   future Python engine shares, not as a one-off try/except in
+   `mt3_engine.py`.
+2. **stdout+stderr protocol corruption, one layer deeper than the
+   Twenty-fourth section's fix.** That section already fixed PyTorch's
+   own stderr warnings landing mid-protocol; this time a `transformers`
+   library warning about `trust_remote_code` did the same thing, but on
+   stderr specifically, which the earlier stdout-only redirect didn't
+   catch. Fixed by redirecting **both** `sys.stdout` and `sys.stderr` to
+   `os.devnull` in all three engine scripts (`mt3_engine.py`,
+   `dac_engine.py`, `encodec_engine.py`), with a saved `_real_stdout`
+   reference as the only thing `send()` ever writes to -- applied to all
+   three for consistency even though DAC/EnCodec's specific noise
+   happened to be caught by the stdout-only version.
+3. **MSVC `windows.h` min/max macro collision.** `#define NOMINMAX` was
+   missing before `ChildProcessEngine.h`'s own `#include <windows.h>`,
+   producing real C2589/C2062/C2059 errors the moment a consuming test
+   file used `std::min`. Fixed in the shared header (benefiting every
+   consumer), and hit again independently in
+   `python_routing_e2e_test.cpp` (which doesn't include
+   `ChildProcessEngine.h` at all, but pulls in `windows.h` transitively
+   through the protocol headers) -- fixed there too, with the define
+   placed before all includes, not just before the file's own explicit
+   `<windows.h>`.
+
+**`main.cpp`'s real request routing: implemented for all three
+Python-routed kinds, and proven against a real running process, not just
+argued from the diff.** Added `"encodeDecodeDac"`, `"encodeDecodeEncodec"`,
+and `"transcribeMt3"` to `kSupportedKinds`, one dedicated `JobQueue` and
+one persistent worker thread per kind (mirroring the existing
+per-Node-kind pattern, but with a long-lived engine process rather than
+one spawned per request, since these models stay loaded in memory
+between calls), and a shared `runPythonRequest()` helper reusing the same
+cancel/timeout/stale-response state machine already proven for Node
+requests. DAC/EnCodec get a new `ENCODE_DECODE_RESULT` response message
+(no existing shape fit their fields: `outputPath`, `sampleRate`,
+`codebooksUsed`, `meanAbsError`); MT3 deliberately reuses the *existing*
+`MIDI_RESULT` shape the plugin already knows how to display, so wiring an
+actual UI trigger for it later needs zero plugin-side protocol changes.
+
+Proven with a new definitive end-to-end test,
+`python_routing_e2e_test.cpp` (`PythonRoutingE2ETest`), modeled on
+`load_boundary_test.cpp`'s pattern: connects to a real, already-running
+`BeatShoreDesktop.exe` over the real named pipe, does a real `HELLO`
+handshake, creates a real shared-memory buffer with a real two-note
+melody (the exact mechanism the plugin itself uses via
+`BridgeClient.h`), sends a real `ANALYSIS_REQUEST` for each of the three
+new kinds, and reads back the real response. **All three passed against
+the actual running desktop process**: `transcribeMt3` returned a real
+`MIDI_RESULT` with `noteCount: 2` in 703ms; `encodeDecodeDac` returned a
+real `ENCODE_DECODE_RESULT` (9 codebooks, mean error 0.0251) in 6062ms;
+`encodeDecodeEncodec` returned a real `ENCODE_DECODE_RESULT` (8
+codebooks, mean error 0.0219) in 2031ms.
+
+**Not yet done**: neither DAC/EnCodec nor MT3 has a plugin-side UI
+trigger. MT3 could get one fairly directly since it reuses the existing
+`MIDI_RESULT` display path already used by `transcribeDrums`/
+`transcribeMono`; DAC/EnCodec still have no defined BeatShore-facing
+feature (see the Twenty-third section) -- the routing now exists and is
+proven, but nothing in the plugin currently calls it.
+
 ### First round (for reference)
 
 - **No Inno Setup installed in this environment**, so the script has never

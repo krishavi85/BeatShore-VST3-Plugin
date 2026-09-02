@@ -23,6 +23,7 @@ existing/being writable; this script doesn't manage a temp directory of
 its own.
 """
 import json
+import os
 import sys
 import warnings
 
@@ -31,12 +32,21 @@ import warnings
 # NodeEngine has always handled Node's own stderr -- see that file's
 # header comment), and this NDJSON protocol treats every line on that
 # stream as a message. PyTorch prints real, benign deprecation warnings
-# to stderr on import/first use (confirmed directly: a stray
-# `FutureWarning` line arrived where the READY line was expected,
-# corrupting the handshake in the very first real end-to-end test run).
-# Silencing warnings here is what keeps the wire protocol clean, not a
-# cosmetic nicety.
+# on import/first use (confirmed directly: a stray `FutureWarning` line
+# arrived where the READY line was expected, corrupting the handshake in
+# the very first real end-to-end test run).
 warnings.filterwarnings("ignore")
+
+# A stronger, more general version of the fix above -- see
+# mt3_engine.py's own header comment for the full reasoning (found there
+# first: mt3-infer's checkpoint-download progress bar bypasses
+# `warnings` entirely on stdout, and a `transformers` advisory does the
+# same on stderr). Applied here too for the same structural reason, not
+# because this specific script has hit either failure yet: `send()` is
+# the only thing allowed to write to the real stdout from this point on.
+_real_stdout = sys.stdout
+sys.stdout = open(os.devnull, "w")
+sys.stderr = open(os.devnull, "w")
 
 import numpy as np
 import torch
@@ -45,8 +55,8 @@ import soundfile as sf
 
 
 def send(message: dict) -> None:
-    sys.stdout.write(json.dumps(message) + "\n")
-    sys.stdout.flush()
+    _real_stdout.write(json.dumps(message) + "\n")
+    _real_stdout.flush()
 
 
 def load_model() -> EncodecModel:

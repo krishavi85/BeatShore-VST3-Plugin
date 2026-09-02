@@ -53,6 +53,7 @@
 #include "../../protocol/MiniJson.h"
 #include "../../protocol/SharedAudioBuffer.h"
 #include "NodeEngine.h"
+#include "PythonEngine.h"
 #include "AnalysisScheduler.h"
 
 using namespace bsjson;
@@ -256,6 +257,16 @@ static PipeSecurity g_pipeSecurity;
 // detached, is safe: nothing here is destroyed while they might still be
 // running.
 static JobQueue g_jobQueue;
+// Separate, dedicated queues for the Python-routed kinds (routed in the
+// ANALYSIS_REQUEST handler below, by kind) -- each served by exactly ONE worker that
+// keeps its model loaded in memory for the process's whole lifetime,
+// unlike Node's own request-per-invocation model. A single shared queue
+// would need per-worker filtering logic (skip jobs meant for a different
+// engine) that JobQueue's plain FIFO waitPop() doesn't support; three
+// small dedicated queues avoids inventing that instead.
+static JobQueue g_dacJobQueue;
+static JobQueue g_encodecJobQueue;
+static JobQueue g_mt3JobQueue;
 static JobRegistry g_jobRegistry;
 static SessionRegistry g_sessionRegistry;
 static std::atomic<bool> g_shuttingDown{false};
@@ -460,13 +471,21 @@ static constexpr size_t kMaxConcurrentSessions = 16;
 // could silently drift apart.
 static const char* kSupportedKinds[] = {
     "loudness", "tempo", "key", "structure", "chords", "timbre",
-    "transcribeDrums", "transcribeMono", "transcribePolyphonic"
+    "transcribeDrums", "transcribeMono", "transcribePolyphonic",
+    // Python-routed kinds (routed to their own dedicated queue/worker in
+    // the ANALYSIS_REQUEST handler below, by kind) -- real
+    // pretrained models (DAC, EnCodec, MT3 via mt3-infer's MR-MT3
+    // backend), license-audited and end-to-end verified before wiring
+    // (see STATUS.md's "Twenty-third"/"Twenty-fourth" sections), served
+    // by their own dedicated PythonEngine workers instead of Node.
+    "encodeDecodeDac", "encodeDecodeEncodec", "transcribeMt3"
 };
 static bool isSupportedKind(const std::string& kind)
 {
     for (auto k : kSupportedKinds) if (kind == k) return true;
     return false;
 }
+
 
 // requestId is attacker/bug-controllable JSON input that gets used to
 // build a real filesystem path (the temp .bsmraw dump below) -- without
@@ -611,6 +630,36 @@ static std::string defaultNodeExe()
     return "node";
 }
 
+// Same two-candidate resolution pattern as defaultNodeExe()/
+// defaultScriptPath() above -- an installed-layout guess (not real yet:
+// no installer packages a Python runtime today, same honestly-flagged
+// gap noted in STATUS.md) and the actual dev-tree venv this session's
+// real end-to-end testing was verified against
+// (native/BeatShoreDesktop/python_engine/ml_env). All three of DAC,
+// EnCodec, and MR-MT3 were installed into this SAME venv (all PyTorch-
+// based), so one function covers all three engine scripts below.
+static std::string defaultPythonExe()
+{
+    std::string installedLayout = exeDirectory() + "\\python\\python.exe";
+    if (fileExists(installedLayout)) return installedLayout;
+
+    std::string devTreeLayout = exeDirectory() + "\\..\\python_engine\\ml_env\\Scripts\\python.exe";
+    if (fileExists(devTreeLayout)) return devTreeLayout;
+
+    return installedLayout; // neither exists -- see defaultScriptPath()'s own comment for why this is still the more honest fallback to log/report
+}
+
+static std::string pythonEngineScriptPath(const char* scriptFileName)
+{
+    std::string installedLayout = exeDirectory() + "\\engine\\native\\BeatShoreDesktop\\python_engine\\" + scriptFileName;
+    if (fileExists(installedLayout)) return installedLayout;
+
+    std::string devTreeLayout = exeDirectory() + "\\..\\python_engine\\" + scriptFileName;
+    if (fileExists(devTreeLayout)) return devTreeLayout;
+
+    return installedLayout;
+}
+
 // Spawns (or respawns, after a hard-cancel kills the previous process) a
 // Node child and validates its READY line. Shared by main()'s initial
 // startup and NodeWorker's post-cancel respawn so both paths get the exact
@@ -657,6 +706,431 @@ static bool startAndValidateNode(NodeEngine& node, const std::string& nodeExe, c
     }
     logLine(logPrefix + "node engine ready: " + readyLine);
     return true;
+}
+
+// ---------------------------------------------------------------------
+// Python-routed kinds (DAC, EnCodec, MT3) -- real pretrained models
+// served by their own PythonEngine workers instead of Node. See
+// STATUS.md's "Twenty-third"/"Twenty-fourth" sections for the license
+// audit and end-to-end verification this wiring is built on.
+// ---------------------------------------------------------------------
+
+// Mirrors startAndValidateNode() above exactly, for PythonEngine instead
+// of NodeEngine -- same reasoning throughout (bounded wait for READY,
+// not an unbounded one; validates the line is actually READY, since
+// PythonEngine.h merges the child's stderr into the same stream, same as
+// NodeEngine always has, so a startup traceback could otherwise be
+// mistaken for a real READY line).
+static bool startAndValidatePython(PythonEngine& python, const std::string& pythonExe, const std::string& scriptPath, const std::string& logPrefix)
+{
+    if (!python.start(pythonExe, scriptPath))
+    {
+        logLine(logPrefix + "FATAL: failed to start python engine (" + scriptPath + ")");
+        return false;
+    }
+    logLine(logPrefix + "python engine process started");
+
+    std::string readyLine;
+    // Real pretrained models load real weights at startup (see each
+    // engine script's own header comment) -- a first cold-cache download
+    // can genuinely take well over a minute (MR-MT3's checkpoint alone is
+    // ~175MB). This deadline reflects that reality, not padding.
+    const auto readyResult = python.readLine(180000, readyLine);
+    if (readyResult == OverlappedPipeIO::ReadResult::Timeout)
+    {
+        logLine(logPrefix + "FATAL: python engine never printed anything within 180s of starting (" + scriptPath + ")");
+        return false;
+    }
+    if (readyResult != OverlappedPipeIO::ReadResult::Ok)
+    {
+        logLine(logPrefix + "FATAL: python engine's stdout closed before sending READY (" + scriptPath + ") -- is python on PATH, and are its dependencies installed?");
+        return false;
+    }
+
+    bool validReady = false;
+    try { validReady = parse(readyLine)["type"].asString() == "READY"; }
+    catch (const std::exception&) {}
+
+    if (!validReady)
+    {
+        logLine(logPrefix + "FATAL: python engine's first line wasn't a valid READY message (" + scriptPath + "): " + readyLine);
+        return false;
+    }
+    logLine(logPrefix + "python engine ready: " + readyLine);
+    return true;
+}
+
+enum class PythonRequestOutcome { Ok, Cancelled, TimedOut, EngineExited, WriteFailed };
+
+// Shared core of "send one request, wait for exactly one response line" --
+// factored out of what would otherwise be three near-identical copies of
+// runNodeWorker's own cancel/timeout/stale-response loop (see that
+// function for the reasoning behind each branch; this mirrors it, just
+// for a single-response-per-request protocol instead of Node's
+// progress-message-capable one). On a genuine CANCEL, kills and restarts
+// `engine` in place (Python inference can't be aborted mid-computation
+// any more than Node's can -- same real constraint, same real fix).
+static PythonRequestOutcome runPythonRequest(std::unique_ptr<PythonEngine>& engine, const std::string& pythonExe,
+                                              const std::string& scriptPath, const std::shared_ptr<AnalysisJob>& job,
+                                              HANDLE workerWakeEvent, const std::string& requestLine, DWORD timeoutMs,
+                                              std::string& outResponseLine, const std::string& logPrefix)
+{
+    logLine(logPrefix + "-> python: " + redactContent(requestLine));
+    if (!engine->writeLine(requestLine)) return PythonRequestOutcome::WriteFailed;
+
+    const ULONGLONG requestStartTick = GetTickCount64();
+    const ULONGLONG deadline = requestStartTick + timeoutMs;
+    int messagesRead = 0;
+
+    while (messagesRead++ < 10000)
+    {
+        const ULONGLONG now = GetTickCount64();
+        if (now >= deadline) { engine->cancelPendingRead(); return PythonRequestOutcome::TimedOut; }
+
+        HANDLE readEvt = engine->beginRead();
+        HANDLE waitSet[2] = { readEvt, workerWakeEvent };
+        DWORD remainingMs = DWORD(deadline - now);
+        DWORD w = WaitForMultipleObjects(2, waitSet, FALSE, remainingMs);
+        if (w == WAIT_TIMEOUT) continue;
+
+        if (w == WAIT_OBJECT_0 + 1)
+        {
+            ResetEvent(workerWakeEvent);
+            if (job->state.load() != JobState::CancelRequested) continue; // stale/unrelated wake
+            logLine(logPrefix + "CANCEL_REQUESTED -- killing and restarting python engine");
+            engine->cancelPendingRead();
+            engine = std::make_unique<PythonEngine>();
+            if (!startAndValidatePython(*engine, pythonExe, scriptPath, logPrefix))
+                logLine(logPrefix + "WARNING: python engine failed to restart after cancellation -- subsequent jobs will fail until it recovers.");
+            return PythonRequestOutcome::Cancelled;
+        }
+
+        std::string line;
+        auto pr = engine->pollRead(line);
+        if (pr == OverlappedPipeIO::PollResult::Pending) continue;
+        if (pr != OverlappedPipeIO::PollResult::Ok) return PythonRequestOutcome::EngineExited;
+
+        logLine(logPrefix + "<- python: " + redactContent(line));
+
+        // Single-response protocol (no progress messages) -- the first
+        // line back is always the terminal response, unlike Node's own
+        // loop which keeps reading until a terminal type arrives.
+        outResponseLine = line;
+        return PythonRequestOutcome::Ok;
+    }
+    return PythonRequestOutcome::TimedOut;
+}
+
+// Reads BeatShoreDesktop's own BSM1 raw-audio temp file (the exact format
+// written a few hundred lines above, in the ANALYSIS_REQUEST handler --
+// "BSM1" magic, uint32 sampleRate/channels/frames, then interleaved
+// float32 samples) and writes it back out as a standard float32 WAV file
+// DAC/EnCodec's engine scripts can read via soundfile. MT3's own engine
+// reads BSM1 directly (see mt3_engine.py) and needs no such conversion --
+// this exists only for the two audio-to-audio kinds.
+static bool convertBsm1ToWav(const std::string& bsm1Path, const std::string& wavPath, std::string& outError)
+{
+    std::ifstream in(bsm1Path, std::ios::binary);
+    if (!in) { outError = "could not open " + bsm1Path; return false; }
+
+    char magic[4];
+    in.read(magic, 4);
+    if (std::memcmp(magic, "BSM1", 4) != 0) { outError = "not a BSM1 file"; return false; }
+
+    uint32_t sampleRate = 0, channels = 0, frames = 0;
+    in.read(reinterpret_cast<char*>(&sampleRate), 4);
+    in.read(reinterpret_cast<char*>(&channels), 4);
+    in.read(reinterpret_cast<char*>(&frames), 4);
+    if (!in || channels == 0 || frames == 0) { outError = "malformed BSM1 header"; return false; }
+
+    const size_t sampleCount = size_t(frames) * channels;
+    std::vector<float> samples(sampleCount);
+    in.read(reinterpret_cast<char*>(samples.data()), std::streamsize(sampleCount * sizeof(float)));
+    if (!in) { outError = "BSM1 file shorter than its own header claims"; return false; }
+
+    // Minimal WAV/RIFF writer, IEEE float format (formatTag 3) -- matches
+    // the samples already being float32, no conversion needed. Same
+    // layout codec_engine_test.cpp's own writeSineWav() uses for its PCM
+    // variant, adapted here to float since that's the native sample type
+    // already in hand.
+    std::ofstream out(wavPath, std::ios::binary);
+    if (!out) { outError = "could not create " + wavPath; return false; }
+
+    const uint32_t dataBytes = uint32_t(sampleCount * sizeof(float));
+    const uint32_t byteRate = sampleRate * channels * uint32_t(sizeof(float));
+    const uint16_t blockAlign = uint16_t(channels * sizeof(float));
+    const uint16_t bitsPerSample = 32;
+    const uint16_t formatTag = 3; // IEEE float
+    const uint32_t chunkSize = 36 + dataBytes;
+
+    out.write("RIFF", 4);
+    out.write(reinterpret_cast<const char*>(&chunkSize), 4);
+    out.write("WAVE", 4);
+    out.write("fmt ", 4);
+    const uint32_t fmtSize = 16;
+    out.write(reinterpret_cast<const char*>(&fmtSize), 4);
+    out.write(reinterpret_cast<const char*>(&formatTag), 2);
+    const uint16_t channelsU16 = uint16_t(channels);
+    out.write(reinterpret_cast<const char*>(&channelsU16), 2);
+    out.write(reinterpret_cast<const char*>(&sampleRate), 4);
+    out.write(reinterpret_cast<const char*>(&byteRate), 4);
+    out.write(reinterpret_cast<const char*>(&blockAlign), 2);
+    out.write(reinterpret_cast<const char*>(&bitsPerSample), 2);
+    out.write("data", 4);
+    out.write(reinterpret_cast<const char*>(&dataBytes), 4);
+    out.write(reinterpret_cast<const char*>(samples.data()), std::streamsize(dataBytes));
+    return true;
+}
+
+// Shared JSON-field helpers for parsing a Python engine's own response
+// line -- MiniJson's Value already has has()/asString() etc, these just
+// spell out the two patterns every worker below needs.
+static bool jsonGetBool(const Value& v, const char* key, bool fallback = false)
+{
+    return v.has(key) ? v[key].asBool() : fallback;
+}
+
+// ---------------------------------------------------------------------
+// DacWorker / EncodecWorker: real ENCODE_DECODE requests against DAC/
+// EnCodec (see dac_engine.py/encodec_engine.py). No existing plugin-side
+// message shape fits "here's a transformed audio file" (unlike MT3 below,
+// which reuses MIDI_RESULT), so this defines a new, minimal
+// ENCODE_DECODE_RESULT type -- verified end-to-end via a real raw-
+// protocol test client, not yet consumed by the plugin's own UI (that
+// page's actual BeatShore feature is still an open product decision, see
+// STATUS.md).
+// ---------------------------------------------------------------------
+static void runAudioCodecWorker(const char* label, const char* kind,
+                                 JobQueue& jobQueue, SessionRegistry& sessionRegistry, std::atomic<bool>& shouldExit,
+                                 std::string pythonExe, std::string scriptPath, std::string tempDir)
+{
+    const std::string logPrefix = std::string("[desktop ") + label + " worker] ";
+    auto engine = std::make_unique<PythonEngine>();
+    bool healthy = startAndValidatePython(*engine, pythonExe, scriptPath, logPrefix);
+    if (!healthy)
+        logLine(logPrefix + "starting in a degraded state -- every job this worker pops will fail immediately with a clear error until it's available.");
+
+    HANDLE workerWakeEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+
+    while (!shouldExit.load())
+    {
+        auto job = jobQueue.waitPop(shouldExit);
+        if (!job) break;
+
+        JobState expected = JobState::Queued;
+        if (!job->state.compare_exchange_strong(expected, JobState::Running)) { releaseJobResources(job); continue; }
+
+        job->assignedWorkerWakeEvent.store(workerWakeEvent);
+        ResetEvent(workerWakeEvent);
+
+        auto outbox = sessionRegistry.find(job->sessionId);
+        if (!outbox)
+        {
+            job->state.store(JobState::Cancelled);
+            releaseJobResources(job);
+            job->assignedWorkerWakeEvent.store(nullptr);
+            continue;
+        }
+
+        auto fail = [&](const std::string& errorCode, const std::string& message)
+        {
+            Value err = Value::object();
+            err.set("type", "ERROR");
+            err.set("requestId", job->requestId);
+            err.set("errorCode", errorCode);
+            err.set("message", message);
+            err.set("audioSource", job->audioSource);
+            outbox->push(toLine(err));
+            job->state.store(JobState::Failed);
+            releaseJobResources(job);
+            job->assignedWorkerWakeEvent.store(nullptr);
+        };
+
+        if (!healthy) { fail(std::string(label) + "_UNAVAILABLE", std::string(label) + " engine is not available (failed to start or was lost and could not be restarted)"); continue; }
+
+        logLine(logPrefix + "handling ANALYSIS_REQUEST requestId=" + job->requestId + " kind=" + std::string(kind));
+
+        const std::string wavInPath = tempDir + "\\bsr_" + job->requestId + "_in.wav";
+        const std::string wavOutPath = tempDir + "\\bsr_" + job->requestId + "_out.wav";
+        std::string convertError;
+        if (!convertBsm1ToWav(job->tempAudioPath, wavInPath, convertError))
+        {
+            fail("AUDIO_CONVERT_FAILED", "could not convert captured audio for " + std::string(label) + ": " + convertError);
+            continue;
+        }
+
+        Value req = Value::object();
+        req.set("type", "ENCODE_DECODE");
+        req.set("requestId", job->requestId);
+        req.set("inputWavPath", wavInPath);
+        req.set("outputWavPath", wavOutPath);
+
+        std::string responseLine;
+        const ULONGLONG requestStartTick = GetTickCount64();
+        auto outcome = runPythonRequest(engine, pythonExe, scriptPath, job, workerWakeEvent, stringify(req), 60000, responseLine, logPrefix);
+        DeleteFileA(wavInPath.c_str()); // input conversion is scratch, not the caller's audio -- always safe to remove once the request has been sent
+
+        if (outcome == PythonRequestOutcome::Cancelled)
+        {
+            Value cancelled = Value::object();
+            cancelled.set("type", "ERROR");
+            cancelled.set("requestId", job->requestId);
+            cancelled.set("errorCode", "CANCELLED");
+            cancelled.set("message", "request " + job->requestId + " was cancelled");
+            cancelled.set("audioSource", job->audioSource);
+            outbox->push(toLine(cancelled));
+            job->state.store(JobState::Cancelled);
+            releaseJobResources(job);
+            job->assignedWorkerWakeEvent.store(nullptr);
+            continue;
+        }
+        if (outcome == PythonRequestOutcome::TimedOut) { fail("TIMEOUT", "timed out waiting for a response from the " + std::string(label) + " engine"); continue; }
+        if (outcome == PythonRequestOutcome::WriteFailed) { fail(std::string(label) + "_WRITE_FAILED", std::string(label) + " engine is not accepting requests"); continue; }
+        if (outcome == PythonRequestOutcome::EngineExited)
+        {
+            healthy = false;
+            fail(std::string(label) + "_EXITED", std::string(label) + " engine exited unexpectedly");
+            continue;
+        }
+
+        Value resp;
+        try { resp = parse(responseLine); }
+        catch (const std::exception&) { fail(std::string(label) + "_BAD_RESPONSE", "the " + std::string(label) + " engine's response wasn't valid JSON"); continue; }
+
+        if (!jsonGetBool(resp, "success"))
+        {
+            fail(std::string(label) + "_FAILED", resp.has("error") ? resp["error"].asString() : "the " + std::string(label) + " engine reported failure with no further detail");
+            continue;
+        }
+
+        Value result = Value::object();
+        result.set("type", "ENCODE_DECODE_RESULT");
+        result.set("requestId", job->requestId);
+        result.set("success", true);
+        result.set("outputPath", wavOutPath);
+        if (resp.has("sampleRate")) result.set("sampleRate", resp["sampleRate"].asNumber());
+        if (resp.has("codebooksUsed")) result.set("codebooksUsed", resp["codebooksUsed"].asNumber());
+        if (resp.has("meanAbsError")) result.set("meanAbsError", resp["meanAbsError"].asNumber());
+        result.set("desktopTotalMs", int(GetTickCount64() - requestStartTick));
+        result.set("audioSource", job->audioSource);
+        outbox->push(toLine(result));
+        job->state.store(JobState::Completed);
+        releaseJobResources(job);
+        job->assignedWorkerWakeEvent.store(nullptr);
+    }
+}
+
+// ---------------------------------------------------------------------
+// Mt3Worker: real TRANSCRIBE requests against MR-MT3 (see mt3_engine.py).
+// Reuses the EXISTING MIDI_RESULT message shape (noteCount, midiPath)
+// deliberately -- it's genuinely the same kind of output as
+// transcribeDrums/transcribeMono/transcribePolyphonic, so BridgeClient.h
+// and the plugin editor's existing applyResult() need ZERO changes to
+// receive and display it correctly, unlike the audio codecs above (which
+// have no existing shape to reuse).
+// ---------------------------------------------------------------------
+static void runMt3Worker(JobQueue& jobQueue, SessionRegistry& sessionRegistry, std::atomic<bool>& shouldExit,
+                          std::string pythonExe, std::string scriptPath, std::string tempDir)
+{
+    const std::string logPrefix = "[desktop mt3 worker] ";
+    auto engine = std::make_unique<PythonEngine>();
+    bool healthy = startAndValidatePython(*engine, pythonExe, scriptPath, logPrefix);
+    if (!healthy)
+        logLine(logPrefix + "starting in a degraded state -- every job this worker pops will fail immediately with a clear error until it's available.");
+
+    HANDLE workerWakeEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+
+    while (!shouldExit.load())
+    {
+        auto job = jobQueue.waitPop(shouldExit);
+        if (!job) break;
+
+        JobState expected = JobState::Queued;
+        if (!job->state.compare_exchange_strong(expected, JobState::Running)) { releaseJobResources(job); continue; }
+
+        job->assignedWorkerWakeEvent.store(workerWakeEvent);
+        ResetEvent(workerWakeEvent);
+
+        auto outbox = sessionRegistry.find(job->sessionId);
+        if (!outbox)
+        {
+            job->state.store(JobState::Cancelled);
+            releaseJobResources(job);
+            job->assignedWorkerWakeEvent.store(nullptr);
+            continue;
+        }
+
+        auto fail = [&](const std::string& errorCode, const std::string& message)
+        {
+            Value err = Value::object();
+            err.set("type", "ERROR");
+            err.set("requestId", job->requestId);
+            err.set("errorCode", errorCode);
+            err.set("message", message);
+            err.set("audioSource", job->audioSource);
+            outbox->push(toLine(err));
+            job->state.store(JobState::Failed);
+            releaseJobResources(job);
+            job->assignedWorkerWakeEvent.store(nullptr);
+        };
+
+        if (!healthy) { fail("MT3_UNAVAILABLE", "MT3 engine is not available (failed to start or was lost and could not be restarted)"); continue; }
+
+        logLine(logPrefix + "handling ANALYSIS_REQUEST requestId=" + job->requestId + " kind=" + job->kind);
+
+        const std::string midiOutPath = tempDir + "\\bsr_" + job->requestId + "_mt3.mid";
+        Value req = Value::object();
+        req.set("type", "TRANSCRIBE");
+        req.set("requestId", job->requestId);
+        req.set("inputAudioPath", job->tempAudioPath); // mt3_engine.py reads BSM1 directly -- no conversion needed, unlike the audio codecs above
+        req.set("outputMidiPath", midiOutPath);
+
+        std::string responseLine;
+        const ULONGLONG requestStartTick = GetTickCount64();
+        auto outcome = runPythonRequest(engine, pythonExe, scriptPath, job, workerWakeEvent, stringify(req), 60000, responseLine, logPrefix);
+
+        if (outcome == PythonRequestOutcome::Cancelled)
+        {
+            Value cancelled = Value::object();
+            cancelled.set("type", "ERROR");
+            cancelled.set("requestId", job->requestId);
+            cancelled.set("errorCode", "CANCELLED");
+            cancelled.set("message", "request " + job->requestId + " was cancelled");
+            cancelled.set("audioSource", job->audioSource);
+            outbox->push(toLine(cancelled));
+            job->state.store(JobState::Cancelled);
+            releaseJobResources(job);
+            job->assignedWorkerWakeEvent.store(nullptr);
+            continue;
+        }
+        if (outcome == PythonRequestOutcome::TimedOut) { fail("TIMEOUT", "timed out waiting for a response from the MT3 engine"); continue; }
+        if (outcome == PythonRequestOutcome::WriteFailed) { fail("MT3_WRITE_FAILED", "MT3 engine is not accepting requests"); continue; }
+        if (outcome == PythonRequestOutcome::EngineExited) { healthy = false; fail("MT3_EXITED", "MT3 engine exited unexpectedly"); continue; }
+
+        Value resp;
+        try { resp = parse(responseLine); }
+        catch (const std::exception&) { fail("MT3_BAD_RESPONSE", "the MT3 engine's response wasn't valid JSON"); continue; }
+
+        if (!jsonGetBool(resp, "success"))
+        {
+            fail("MT3_FAILED", resp.has("error") ? resp["error"].asString() : "the MT3 engine reported failure with no further detail");
+            continue;
+        }
+
+        Value result = Value::object();
+        result.set("type", "MIDI_RESULT");
+        result.set("requestId", job->requestId);
+        result.set("success", true);
+        result.set("noteCount", resp.has("noteCount") ? resp["noteCount"].asNumber() : 0);
+        result.set("midiPath", midiOutPath);
+        result.set("algorithm", "mt3-infer/mr_mt3");
+        result.set("desktopTotalMs", int(GetTickCount64() - requestStartTick));
+        result.set("audioSource", job->audioSource);
+        outbox->push(toLine(result));
+        job->state.store(JobState::Completed);
+        releaseJobResources(job);
+        job->assignedWorkerWakeEvent.store(nullptr);
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -1126,7 +1600,16 @@ static void runPipeSession(HANDLE pipeHandle, std::string sessionId, JobQueue& j
             // Bound total queued (not yet running) work across every
             // session -- protects the shared queue itself from unbounded
             // growth regardless of how many sessions are contributing to it.
-            if (jobQueue.size() >= kMaxGlobalQueueDepth)
+            // A Python-routed kind checks (and later pushes to) its OWN
+            // dedicated queue, not the Node one this function's own
+            // `jobQueue` parameter is bound to -- see g_dacJobQueue's own
+            // comment for why three small queues instead of one shared
+            // one.
+            JobQueue& targetQueue = kind == "encodeDecodeDac"      ? g_dacJobQueue
+                                   : kind == "encodeDecodeEncodec" ? g_encodecJobQueue
+                                   : kind == "transcribeMt3"       ? g_mt3JobQueue
+                                                                    : jobQueue;
+            if (targetQueue.size() >= kMaxGlobalQueueDepth)
             {
                 rejectRequest("QUEUE_FULL", "the desktop's job queue is at capacity (" + std::to_string(kMaxGlobalQueueDepth) + ") -- try again shortly");
                 continue;
@@ -1235,7 +1718,7 @@ static void runPipeSession(HANDLE pipeHandle, std::string sessionId, JobQueue& j
             if (msg.has("preserveGroove")) job->preserveGroove = msg["preserveGroove"].asBool();
 
             jobRegistry.add(job);
-            jobQueue.push(job);
+            targetQueue.push(job);
         }
         else if (type == "CANCEL")
         {
@@ -1917,6 +2400,28 @@ int main(int argc, char** argv)
     std::vector<std::thread> workerThreads;
     for (int i = 0; i < kMaxConcurrentNodeJobs; ++i)
         workerThreads.emplace_back(runNodeWorker, i, std::ref(g_jobQueue), std::ref(g_sessionRegistry), std::ref(g_shuttingDown), nodeExe, scriptPath);
+
+    // One dedicated worker each for the three Python-routed kinds -- see
+    // g_dacJobQueue's own comment for why these are separate
+    // queues/workers rather than sharing Node's. All three currently
+    // share the same venv (defaultPythonExe()) since DAC, EnCodec, and
+    // MR-MT3 are all PyTorch-based -- see STATUS.md's "Twenty-fourth"
+    // section. A worker that fails to start (missing venv, dependencies
+    // not installed) doesn't stop the desktop or Node from working --
+    // exactly the same "starts in a degraded state, fails clearly per-
+    // request" behavior startAndValidatePython()'s own caller already
+    // logs, not a fatal startup error.
+    std::string pythonExe = defaultPythonExe();
+    workerThreads.emplace_back(runAudioCodecWorker, "dac", "encodeDecodeDac",
+        std::ref(g_dacJobQueue), std::ref(g_sessionRegistry), std::ref(g_shuttingDown),
+        pythonExe, pythonEngineScriptPath("dac_engine.py"), tempDir);
+    workerThreads.emplace_back(runAudioCodecWorker, "encodec", "encodeDecodeEncodec",
+        std::ref(g_encodecJobQueue), std::ref(g_sessionRegistry), std::ref(g_shuttingDown),
+        pythonExe, pythonEngineScriptPath("encodec_engine.py"), tempDir);
+    workerThreads.emplace_back(runMt3Worker,
+        std::ref(g_mt3JobQueue), std::ref(g_sessionRegistry), std::ref(g_shuttingDown),
+        pythonExe, pythonEngineScriptPath("mt3_engine.py"), tempDir);
+
     for (auto& t : workerThreads) t.detach();
 
     // Runs on its own background thread (see runTrayApp() below) so the

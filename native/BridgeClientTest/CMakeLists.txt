@@ -320,3 +320,40 @@ target_link_libraries(PythonEngineTest
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
 )
+
+# Proves PythonEngine.h drives a REAL neural codec model (EnCodec, then
+# DAC below) end-to-end through the actual IPC mechanism -- a real
+# pretrained model, a real ENCODE_DECODE request, a real output WAV file
+# checked afterward. Points at the dedicated venv
+# (native/BeatShoreDesktop/python_engine/ml_env) those packages were
+# actually installed into, not the bare "python" PATH lookup
+# PythonEngineTest.exe uses for the dependency-free echo script.
+juce_add_console_app(EncodecEngineTest PRODUCT_NAME "EncodecEngineTest")
+target_sources(EncodecEngineTest PRIVATE Source/codec_engine_test.cpp)
+target_compile_definitions(EncodecEngineTest
+    PRIVATE
+        JucePlugin_VersionString="0.1.0-encodecenginetest"
+        CODEC_NAME="encodec"
+        CODEC_SAMPLE_RATE=24000.0
+        CODEC_ENGINE_SCRIPT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreDesktop/python_engine/encodec_engine.py"
+        CODEC_PYTHON_EXE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreDesktop/python_engine/ml_env/Scripts/python.exe"
+)
+target_link_libraries(EncodecEngineTest
+    PRIVATE juce::juce_core
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags
+)
+
+juce_add_console_app(DacEngineTest PRODUCT_NAME "DacEngineTest")
+target_sources(DacEngineTest PRIVATE Source/codec_engine_test.cpp)
+target_compile_definitions(DacEngineTest
+    PRIVATE
+        JucePlugin_VersionString="0.1.0-dacenginetest"
+        CODEC_NAME="dac"
+        CODEC_SAMPLE_RATE=44100.0
+        CODEC_ENGINE_SCRIPT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreDesktop/python_engine/dac_engine.py"
+        CODEC_PYTHON_EXE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreDesktop/python_engine/ml_env/Scripts/python.exe"
+)
+target_link_libraries(DacEngineTest
+    PRIVATE juce::juce_core
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags
+)

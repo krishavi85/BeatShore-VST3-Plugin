@@ -5,6 +5,18 @@ build/
 native/*/build/
 native/*/*/build/
 
+# Python virtual environments for the ML child-process runtime (DAC/
+# EnCodec/MT3 scoping -- see STATUS.md's "Twenty-third"/"Twenty-fourth"
+# sections) -- gigabytes of installed packages and downloaded model
+# weight caches, never source. Python's own `venv` module auto-writes a
+# `.gitignore` (containing `*`) inside each venv it creates, which
+# already excludes most of these -- but that's inconsistent across
+# Python launchers (confirmed directly: a venv created via an
+# Astral-managed Python distribution did NOT get one, and would have
+# been swept into a broad `git add` untracked-and-unnoticed). This
+# explicit rule doesn't rely on that per-venv file existing.
+native/BeatShoreDesktop/python_engine/*_env/
+
 # Vendored third-party SDKs -- large (JUCE ~117MB, VST3 SDK ~500MB) and
 # not this project's own code. Fetch these separately per each SDK's own
 # distribution instructions rather than committing them; see each

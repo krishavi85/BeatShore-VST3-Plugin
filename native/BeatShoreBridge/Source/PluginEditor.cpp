@@ -51,12 +51,16 @@ namespace
         g.drawRoundedRectangle(bounds, cornerSize, 1.2f);
     }
 
-    // A custom LookAndFeel_V4 for just the two TextButton types this editor
-    // uses -- rounded, gradient-filled, glowing on hover, dimmed when
-    // disabled. Button identity (onClick, text, enabled state) is set on
-    // the juce::TextButton objects themselves in the constructor below,
-    // exactly as before; this class only changes how those same buttons
-    // are painted.
+    // A custom LookAndFeel_V4 for every TextButton this editor uses --
+    // rounded, gradient-filled, glowing on hover, dimmed when disabled.
+    // getToggleState() picks a stronger, solid-filled variant, used only by
+    // the sidebar nav buttons (see showPage()) to mark the active page --
+    // every trigger button (Analyze Tempo, Transcribe, Key, etc.) is never
+    // toggled, so this is a purely additive rendering path: their look is
+    // completely unchanged from before the sidebar existed. Button
+    // identity (onClick, text, enabled state) is set on the juce::TextButton
+    // objects themselves in the constructor, exactly as before; this class
+    // only changes how those same buttons are painted.
     class FuturisticLookAndFeel final : public juce::LookAndFeel_V4
     {
     public:
@@ -76,6 +80,18 @@ namespace
             }
 
             const juce::Colour accent(kAccent);
+
+            if (button.getToggleState())
+            {
+                // Active sidebar nav item: solid fill, not just a tinted
+                // gradient -- reads as "you are here" at a glance among
+                // nine other list-style buttons.
+                g.setColour(accent.withAlpha(0.85f));
+                g.fillRoundedRectangle(bounds, corner);
+                drawGlowRoundedRect(g, bounds, corner, accent, 4.0f, 0.9f);
+                return;
+            }
+
             juce::ColourGradient fill(accent.withAlpha(isDown ? 0.35f : (isHighlighted ? 0.30f : 0.20f)),
                                        bounds.getTopLeft(),
                                        accent.darker(isDown ? 0.6f : 0.4f).withAlpha(0.55f),
@@ -90,7 +106,8 @@ namespace
         void drawButtonText(juce::Graphics& g, juce::TextButton& button, bool, bool) override
         {
             g.setFont(getTextButtonFont(button, button.getHeight()));
-            g.setColour(button.isEnabled() ? juce::Colour(kTextPrime) : juce::Colour(kTextFaint));
+            g.setColour(!button.isEnabled() ? juce::Colour(kTextFaint)
+                                             : (button.getToggleState() ? juce::Colour(0xff0a0e1c) : juce::Colour(kTextPrime)));
             g.drawFittedText(button.getButtonText(), button.getLocalBounds().reduced(6, 0),
                               juce::Justification::centred, 2);
         }
@@ -115,6 +132,23 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     titleLabel.setColour(juce::Label::textColourId, juce::Colour(kTextPrime));
     addAndMakeVisible(titleLabel);
 
+    // --- Persistent header: bridge connection status, every page -------
+    styleValue(bridgeStatusLabel);
+    bridgeStatusLabel.setColour(juce::Label::textColourId, juce::Colour(kWarn)); // same default as before -- timerCallback() overwrites with the live-status colour
+    bridgeStatusLabel.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(bridgeStatusLabel);
+
+    // --- Sidebar nav -----------------------------------------------------
+    for (int i = 0; i < kNumPages; ++i)
+    {
+        const auto page = static_cast<Page>(i);
+        navButtons[size_t(i)].setButtonText(pageName(page));
+        navButtons[size_t(i)].setClickingTogglesState(false); // toggle state is driven by showPage(), not click-to-toggle
+        navButtons[size_t(i)].onClick = [this, page] { showPage(page); };
+        addAndMakeVisible(navButtons[size_t(i)]);
+    }
+
+    // --- Overview page ---------------------------------------------------
     styleHeading(hostSectionLabel, "HOST CONTEXT");
     addAndMakeVisible(hostSectionLabel);
 
@@ -124,12 +158,9 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
         addAndMakeVisible(*label);
     }
 
-    styleHeading(bridgeSectionLabel, "BEATSHORE DESKTOP BRIDGE");
+    // --- Transcribe page ---------------------------------------------------
+    styleHeading(bridgeSectionLabel, "ANALYZE TEMPO");
     addAndMakeVisible(bridgeSectionLabel);
-
-    styleValue(bridgeStatusLabel);
-    bridgeStatusLabel.setColour(juce::Label::textColourId, juce::Colour(kWarn)); // same default as before -- timerCallback() overwrites with the live-status colour
-    addAndMakeVisible(bridgeStatusLabel);
 
     styleValue(captureStatusLabel);
     captureStatusLabel.setFont(juce::Font(juce::FontOptions(11.5f)));
@@ -199,11 +230,23 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     openExportFolderButton.onClick = [this] { openExportFolderClicked(); };
     addAndMakeVisible(openExportFolderButton);
 
-    // Grown again to fit the new Quick Analysis card and three new
-    // transcription buttons -- layout ORDER (title -> host context ->
-    // bridge -> quick analysis -> transcription) matches the order these
-    // sections were added in.
-    setSize(480, 760);
+    // --- Shared "not built yet" page ---------------------------------
+    styleHeading(comingSoonTitleLabel, "NOT BUILT YET");
+    comingSoonTitleLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(comingSoonTitleLabel);
+
+    styleValue(comingSoonBodyLabel);
+    comingSoonBodyLabel.setColour(juce::Label::textColourId, juce::Colour(kTextDim));
+    comingSoonBodyLabel.setJustificationType(juce::Justification::centred);
+    comingSoonBodyLabel.setFont(juce::Font(juce::FontOptions(12.5f)));
+    addAndMakeVisible(comingSoonBodyLabel);
+
+    // Wider than the single-column layout this replaced -- room for the
+    // sidebar alongside a page's content. Height sized for the taller of
+    // the two real pages (Transcribe); Overview and the placeholder pages
+    // simply don't fill it.
+    setSize(760, 700);
+    showPage(Page::Overview);
     startTimerHz(10);
     timerCallback();
 }
@@ -212,6 +255,69 @@ BeatShoreBridgeAudioProcessorEditor::~BeatShoreBridgeAudioProcessorEditor()
 {
     stopTimer();
     setLookAndFeel(nullptr);
+}
+
+const char* BeatShoreBridgeAudioProcessorEditor::pageName(Page page)
+{
+    switch (page)
+    {
+        case Page::Overview:    return "Overview";
+        case Page::Separate:    return "Separate";
+        case Page::Repair:      return "Repair";
+        case Page::Transcribe:  return "Transcribe";
+        case Page::Reconstruct: return "Reconstruct";
+        case Page::Humanize:    return "Humanize";
+        case Page::SoundMatch:  return "Sound Match";
+        case Page::Mix:         return "Mix";
+        case Page::Master:      return "Master";
+        case Page::Export:      return "Export";
+    }
+    return "Unknown";
+}
+
+bool BeatShoreBridgeAudioProcessorEditor::pageIsBuilt(Page page)
+{
+    return page == Page::Overview || page == Page::Transcribe;
+}
+
+void BeatShoreBridgeAudioProcessorEditor::showPage(Page page)
+{
+    currentPage = page;
+    for (int i = 0; i < kNumPages; ++i)
+        navButtons[size_t(i)].setToggleState(static_cast<Page>(i) == currentPage, juce::dontSendNotification);
+
+    if (!pageIsBuilt(page))
+    {
+        comingSoonBodyLabel.setText(
+            juce::String(pageName(page)) + " is part of the BeatShore Reverse Studio design, not built in this "
+            "plugin yet -- see STATUS.md's \"Eighteenth\" section for what that would actually take "
+            "(most of it needs real trained ML models, not just UI wiring).",
+            juce::dontSendNotification);
+    }
+
+    updateControlVisibility();
+    resized();
+    repaint();
+}
+
+void BeatShoreBridgeAudioProcessorEditor::updateControlVisibility()
+{
+    const bool isOverview = currentPage == Page::Overview;
+    const bool isTranscribe = currentPage == Page::Transcribe;
+    const bool isComingSoon = !isOverview && !isTranscribe;
+
+    for (auto* c : { &hostSectionLabel, &sampleRateLabel, &blockSizeLabel, &tempoLabel, &timeSigLabel, &transportLabel, &playheadLabel })
+        c->setVisible(isOverview);
+
+    for (auto* c : std::initializer_list<juce::Component*>{
+             &bridgeSectionLabel, &captureStatusLabel, &analyzeTempoButton, &analysisResultLabel,
+             &quickAnalysisSectionLabel, &keyButton, &chordsButton, &loudnessButton, &quickResultLabel,
+             &transcribeSectionLabel, &transcribeButton, &drumsButton, &bassButton, &leadButton,
+             &transcribeStatusLabel, &transcribeDetailLabel, &openExportFolderButton })
+        c->setVisible(isTranscribe);
+
+    comingSoonTitleLabel.setVisible(isComingSoon);
+    comingSoonBodyLabel.setVisible(isComingSoon);
 }
 
 void BeatShoreBridgeAudioProcessorEditor::drawPanel(juce::Graphics& g, juce::Rectangle<float> bounds,
@@ -283,27 +389,41 @@ void BeatShoreBridgeAudioProcessorEditor::paint(juce::Graphics& g)
     const auto bridgeStatus = processor.getBridgeStatus();
     const auto liveColour = bridgeStatusColour(bridgeStatus);
 
-    drawPanel(g, hostPanelBounds, juce::Colour(kAccent), 2.0f);
-    drawPanel(g, bridgePanelBounds, liveColour, bridgeStatus == BridgeStatus::Connected ? 4.0f : 2.0f);
-    drawPanel(g, quickAnalysisPanelBounds, juce::Colour(kAccent), 2.0f);
-    drawPanel(g, transcribePanelBounds, juce::Colour(kAccent), 2.0f);
-
-    // Status dot sits just left of the bridge status label, colour-coded by
-    // the SAME BridgeStatus enum bridgeStatusText() already switches on --
-    // no new connection state, just a second, purely visual read of it.
+    // Persistent header connection dot -- just left of bridgeStatusLabel,
+    // colour-coded by the SAME BridgeStatus enum bridgeStatusText() already
+    // switches on, visible regardless of currentPage.
     drawStatusDot(g, { bridgeStatusLabel.getBounds().getX() - 10.0f,
                         bridgeStatusLabel.getBounds().getCentreY() + 0.0f },
                   liveColour, pulsePhase);
 
-    // Thin "in-flight" progress bar under the two trigger buttons -- reads
+    drawPanel(g, sidebarBounds, juce::Colour(kAccent), 1.5f);
+
+    if (currentPage == Page::Overview)
+    {
+        drawPanel(g, hostPanelBounds, juce::Colour(kAccent), 2.0f);
+    }
+    else if (currentPage == Page::Transcribe)
+    {
+        drawPanel(g, bridgePanelBounds, liveColour, bridgeStatus == BridgeStatus::Connected ? 4.0f : 2.0f);
+        drawPanel(g, quickAnalysisPanelBounds, juce::Colour(kAccent), 2.0f);
+        drawPanel(g, transcribePanelBounds, juce::Colour(kAccent), 2.0f);
+    }
+    else
+    {
+        drawPanel(g, comingSoonPanelBounds, juce::Colour(kTextFaint), 1.5f);
+    }
+
+    // Thin "in-flight" progress bar under the trigger buttons -- reads
     // processor.isAnalysisInFlight()/getAnalysisProgress(), the same
     // read-only accessors timerCallback() already calls; nothing new is
-    // exposed from PluginProcessor for this.
-    if (processor.isAnalysisInFlight())
+    // exposed from PluginProcessor for this. Only meaningful (and only
+    // drawn) on the Transcribe page, since that's the only page anything
+    // can be in flight from.
+    if (currentPage == Page::Transcribe && processor.isAnalysisInFlight())
     {
         const float progress = juce::jlimit(0.0f, 1.0f, static_cast<float>(processor.getAnalysisProgress()));
-        auto barArea = juce::Rectangle<float>(hostPanelBounds.getX(), getHeight() - 6.0f,
-                                               getWidth() - hostPanelBounds.getX() * 2.0f, 3.0f);
+        auto barArea = juce::Rectangle<float>(transcribePanelBounds.getX(), getHeight() - 6.0f,
+                                               transcribePanelBounds.getWidth(), 3.0f);
         g.setColour(juce::Colour(kAccentDim));
         g.fillRoundedRectangle(barArea, 1.5f);
         g.setColour(juce::Colour(kLive));
@@ -313,85 +433,111 @@ void BeatShoreBridgeAudioProcessorEditor::paint(juce::Graphics& g)
 
 void BeatShoreBridgeAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced(16);
+    auto full = getLocalBounds().reduced(16);
 
-    auto brandRow = area.removeFromTop(28);
-    titleLabel.setBounds(brandRow.withTrimmedLeft(32));
-    area.removeFromTop(12);
+    // --- Persistent header: brand + title, bridge status on the right ---
+    auto headerRow = full.removeFromTop(28);
+    bridgeStatusLabel.setBounds(headerRow.removeFromRight(220).withTrimmedLeft(14));
+    headerRow.removeFromRight(8);
+    titleLabel.setBounds(headerRow.withTrimmedLeft(32));
+    full.removeFromTop(12);
 
-    // --- Host context card -----------------------------------------------
-    auto hostArea = area.removeFromTop(150);
-    hostPanelBounds = hostArea.toFloat();
-    auto hostInner = hostArea.reduced(14, 10);
-    hostSectionLabel.setBounds(hostInner.removeFromTop(16));
-    hostInner.removeFromTop(4);
-    sampleRateLabel.setBounds(hostInner.removeFromTop(18));
-    blockSizeLabel.setBounds(hostInner.removeFromTop(18));
-    tempoLabel.setBounds(hostInner.removeFromTop(18));
-    timeSigLabel.setBounds(hostInner.removeFromTop(18));
-    transportLabel.setBounds(hostInner.removeFromTop(18));
-    playheadLabel.setBounds(hostInner.removeFromTop(18));
-
-    area.removeFromTop(14);
-
-    // --- Bridge + tempo card -----------------------------------------------
-    auto bridgeArea = area.removeFromTop(140);
-    bridgePanelBounds = bridgeArea.toFloat();
-    auto bridgeInner = bridgeArea.reduced(14, 10);
-    bridgeSectionLabel.setBounds(bridgeInner.removeFromTop(16).withTrimmedLeft(14)); // leave room for the status dot drawn in paint()
-    bridgeStatusLabel.setBounds(bridgeInner.removeFromTop(20).withTrimmedLeft(14));
-    captureStatusLabel.setBounds(bridgeInner.removeFromTop(16));
-    bridgeInner.removeFromTop(6);
-    analyzeTempoButton.setBounds(bridgeInner.removeFromTop(28));
-    bridgeInner.removeFromTop(6);
-    analysisResultLabel.setBounds(bridgeInner.removeFromTop(30));
-
-    area.removeFromTop(14);
-
-    // --- Quick analysis card (key / chords / loudness) --------------------
-    auto quickArea = area.removeFromTop(120);
-    quickAnalysisPanelBounds = quickArea.toFloat();
-    auto quickInner = quickArea.reduced(14, 10);
-    quickAnalysisSectionLabel.setBounds(quickInner.removeFromTop(16));
-    quickInner.removeFromTop(6);
+    // --- Sidebar nav, full remaining height ------------------------------
+    auto sidebarArea = full.removeFromLeft(150);
+    sidebarBounds = sidebarArea.toFloat();
+    auto navArea = sidebarArea.reduced(8);
+    for (int i = 0; i < kNumPages; ++i)
     {
-        auto buttonRow = quickInner.removeFromTop(28);
-        const int gap = 6;
-        const int buttonWidth = (buttonRow.getWidth() - gap * 2) / 3;
-        keyButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
-        buttonRow.removeFromLeft(gap);
-        chordsButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
-        buttonRow.removeFromLeft(gap);
-        loudnessButton.setBounds(buttonRow);
+        navButtons[size_t(i)].setBounds(navArea.removeFromTop(30));
+        navArea.removeFromTop(3);
     }
-    quickInner.removeFromTop(8);
-    quickResultLabel.setBounds(quickInner.removeFromTop(30));
 
-    area.removeFromTop(14);
+    full.removeFromLeft(16);
+    auto content = full; // everything below/right of the header and sidebar
 
-    // --- Transcription card -------------------------------------------------
-    auto transcribeArea = area;
-    transcribePanelBounds = transcribeArea.toFloat();
-    auto transcribeInner = transcribeArea.reduced(14, 10);
-    transcribeSectionLabel.setBounds(transcribeInner.removeFromTop(16));
-    transcribeInner.removeFromTop(6);
-    transcribeButton.setBounds(transcribeInner.removeFromTop(28));
-    transcribeInner.removeFromTop(6);
+    if (currentPage == Page::Overview)
     {
-        auto buttonRow = transcribeInner.removeFromTop(28);
-        const int gap = 6;
-        const int buttonWidth = (buttonRow.getWidth() - gap * 2) / 3;
-        drumsButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
-        buttonRow.removeFromLeft(gap);
-        bassButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
-        buttonRow.removeFromLeft(gap);
-        leadButton.setBounds(buttonRow);
+        auto hostArea = content.removeFromTop(180);
+        hostPanelBounds = hostArea.toFloat();
+        auto hostInner = hostArea.reduced(16, 12);
+        hostSectionLabel.setBounds(hostInner.removeFromTop(16));
+        hostInner.removeFromTop(6);
+        sampleRateLabel.setBounds(hostInner.removeFromTop(20));
+        blockSizeLabel.setBounds(hostInner.removeFromTop(20));
+        tempoLabel.setBounds(hostInner.removeFromTop(20));
+        timeSigLabel.setBounds(hostInner.removeFromTop(20));
+        transportLabel.setBounds(hostInner.removeFromTop(20));
+        playheadLabel.setBounds(hostInner.removeFromTop(20));
     }
-    transcribeInner.removeFromTop(6);
-    transcribeStatusLabel.setBounds(transcribeInner.removeFromTop(30));
-    transcribeDetailLabel.setBounds(transcribeInner.removeFromTop(64));
-    transcribeInner.removeFromTop(6);
-    openExportFolderButton.setBounds(transcribeInner.removeFromTop(28));
+    else if (currentPage == Page::Transcribe)
+    {
+        // --- Bridge + tempo card ---
+        auto bridgeArea = content.removeFromTop(130);
+        bridgePanelBounds = bridgeArea.toFloat();
+        auto bridgeInner = bridgeArea.reduced(14, 10);
+        bridgeSectionLabel.setBounds(bridgeInner.removeFromTop(16));
+        captureStatusLabel.setBounds(bridgeInner.removeFromTop(16));
+        bridgeInner.removeFromTop(6);
+        analyzeTempoButton.setBounds(bridgeInner.removeFromTop(28));
+        bridgeInner.removeFromTop(6);
+        analysisResultLabel.setBounds(bridgeInner.removeFromTop(30));
+
+        content.removeFromTop(14);
+
+        // --- Quick analysis card (key / chords / loudness) ---
+        auto quickArea = content.removeFromTop(120);
+        quickAnalysisPanelBounds = quickArea.toFloat();
+        auto quickInner = quickArea.reduced(14, 10);
+        quickAnalysisSectionLabel.setBounds(quickInner.removeFromTop(16));
+        quickInner.removeFromTop(6);
+        {
+            auto buttonRow = quickInner.removeFromTop(28);
+            const int gap = 6;
+            const int buttonWidth = (buttonRow.getWidth() - gap * 2) / 3;
+            keyButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+            buttonRow.removeFromLeft(gap);
+            chordsButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+            buttonRow.removeFromLeft(gap);
+            loudnessButton.setBounds(buttonRow);
+        }
+        quickInner.removeFromTop(8);
+        quickResultLabel.setBounds(quickInner.removeFromTop(30));
+
+        content.removeFromTop(14);
+
+        // --- Transcription card ---
+        auto transcribeArea = content;
+        transcribePanelBounds = transcribeArea.toFloat();
+        auto transcribeInner = transcribeArea.reduced(14, 10);
+        transcribeSectionLabel.setBounds(transcribeInner.removeFromTop(16));
+        transcribeInner.removeFromTop(6);
+        transcribeButton.setBounds(transcribeInner.removeFromTop(28));
+        transcribeInner.removeFromTop(6);
+        {
+            auto buttonRow = transcribeInner.removeFromTop(28);
+            const int gap = 6;
+            const int buttonWidth = (buttonRow.getWidth() - gap * 2) / 3;
+            drumsButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+            buttonRow.removeFromLeft(gap);
+            bassButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
+            buttonRow.removeFromLeft(gap);
+            leadButton.setBounds(buttonRow);
+        }
+        transcribeInner.removeFromTop(6);
+        transcribeStatusLabel.setBounds(transcribeInner.removeFromTop(30));
+        transcribeDetailLabel.setBounds(transcribeInner.removeFromTop(64));
+        transcribeInner.removeFromTop(6);
+        openExportFolderButton.setBounds(transcribeInner.removeFromTop(28));
+    }
+    else
+    {
+        comingSoonPanelBounds = content.toFloat();
+        auto inner = content.reduced(24);
+        auto centred = inner.withSizeKeepingCentre(inner.getWidth(), 70);
+        comingSoonTitleLabel.setBounds(centred.removeFromTop(22));
+        centred.removeFromTop(8);
+        comingSoonBodyLabel.setBounds(centred);
+    }
 }
 
 juce::String BeatShoreBridgeAudioProcessorEditor::bridgeStatusText(BridgeStatus status)

@@ -2513,6 +2513,80 @@ distinction itself is audibly meaningful; that needs real bass/lead
 recordings, which is exactly the kind of judgment call this environment
 can't make and REAPER testing already has a track record of answering).
 
+### Eighteenth: sidebar navigation, modeled on a much larger design blueprint the user shared
+
+The user shared a mockup of "BeatShore Reverse Studio" -- a full
+standalone-app-scale design: 12-part stem separation, spectral repair,
+de-noise/de-reverb/de-bleed/de-clip, instrument/timbre identification,
+humanization, sound matching, a full EQ/comp/mixing/mastering chain,
+A/B reconstruction, an "Ask BeatShore" AI chat, "GOD MODE" analysis --
+and asked for more features, then for this to become the real plugin.
+Before writing anything, said plainly what's actually real: this
+plugin's entire backend is tempo/key/chords/loudness/four transcription
+kinds (the "Seventeenth" section above). Everything else pictured needs
+real trained ML models (stem separation is Demucs/Spleeter-class
+territory) or substantial new DSP systems that don't exist in this
+codebase and can't be fabricated in a session -- not a wiring gap like
+the last one.
+
+Two deliverables, in the order the user asked for: a static HTML/CSS
+design reference (published as a Claude Artifact, every control
+inert -- a planning document, not a claim that any of it works) built
+from the actual shared screenshot's real layout and values, not
+generic placeholder content; then, on the user's go-ahead, a real
+reorganization of the actual JUCE plugin editor toward the blueprint's
+*structural* pattern (sidebar navigation, a persistent header) without
+faking its *feature* content. Scoped and stated the defaults rather
+than blocking a second time on an already-answered question:
+
+- Ten sidebar sections, matching the blueprint's own order and names.
+- Bridge connection status moved out of a page-specific card into a
+  **persistent header** (visible regardless of which page is selected)
+  -- you need to know if BeatShore Desktop is reachable no matter what
+  you're doing, the same reasoning the blueprint's own header status
+  indicators follow.
+- **Overview** = host context readouts (sample rate, tempo, time
+  signature, transport, playhead) -- unchanged content, moved to its
+  own page.
+- **Transcribe** = every trigger this plugin actually has (tempo, key,
+  chords, loudness, piano/guitar, drums, bass, lead) -- the "Seventeenth"
+  section's feature set, now organized under the tab a user would
+  actually expect to find it in, instead of three separate cards on one
+  flat page.
+- The other eight (Separate, Repair, Reconstruct, Humanize, Sound
+  Match, Mix, Master, Export) show a real, explicit "NOT BUILT YET"
+  panel naming what it would take -- never a control that looks live
+  but does nothing.
+
+Implementation: a `Page` enum and `showPage()`/`updateControlVisibility()`
+pair drive which existing controls are visible and how `resized()`
+lays out the active page's content -- every `juce::Label`/
+`juce::TextButton` is the exact same object with the exact same
+`onClick` handler it had before this reorg, just shown/hidden and
+repositioned rather than recreated. Sidebar nav buttons reuse the
+existing `FuturisticLookAndFeel`, extended with one purely additive
+rendering path (a solid-fill "active" look gated on `getToggleState()`,
+which no pre-existing button ever sets) so every already-tested
+button's appearance is provably unchanged -- only the nav buttons ever
+hit the new code path. Window grew to 760x700 for the sidebar; `paint()`
+draws a card panel behind whichever page's content is actually visible
+rather than always drawing three fixed panels.
+
+Verified the same way as "Seventeenth": clean rebuild (zero warnings),
+Steinberg Validator still **47/47**, and the same throwaway smoke-test
+program re-run against a fresh desktop -- **6/6 still passing**,
+identical results to before the reorg (confirms `PluginProcessor`/
+`BridgeClient.h` genuinely weren't touched, not just assumed). Deploying
+to the copy REAPER actually loads from hit a real, honest blocker this
+time: REAPER (`test [modified]` -- unsaved changes in its title bar) had
+the plugin loaded, locking the DLL (`robocopy` error 32, "the process
+cannot access the file because it is being used by another process").
+Did not force-close the user's own DAW session to work around it --
+that's a real, deliberate line, not an oversight. **Not yet deployed to
+the live copy** -- needs the user to close the plugin instance or
+REAPER itself first, same as any other REAPER-side change this project
+has needed their hands for.
+
 An external review of the first draft caught six genuine release blockers
 and a long list of real script issues, none of which had been caught by
 this project's own testing (which had focused on "does the staged engine

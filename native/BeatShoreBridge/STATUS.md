@@ -3087,6 +3087,115 @@ on reading the code and an independent, rigorous standalone test, not
 yet re-confirmed live in the REAPER session that originally surfaced it.
 That's the natural next step once this build is deployed.
 
+### Twenty-third: license-auditing a "Real Trained ML Model Stack" document, and a real (unwired) Python child-process runtime
+
+The user supplied a document proposing roughly ten ML systems for the
+GOD MODE blueprint's remaining pages (stem separation, transcription,
+neural codecs, mastering research) and asked to "add them all." Audited
+first, per the document's own stated need ("Audit the license of every
+repository AND every individual model weight before shipping BeatShore
+commercially") which it flagged but didn't actually do -- and per this
+project's own established pattern of never building against an
+unverified license.
+
+**License audit results** (checked at the primary source, same rigor as
+the earlier Demucs/Open-Unmix/RNNoise/DeepFilterNet audits):
+- **Clear**: Descript Audio Codec (MIT, code and weights, no restriction
+  found), Meta EnCodec (MIT, same), Google Magenta MT3 (Apache-2.0 code;
+  checkpoint training-data provenance not deep-audited), Mido/libsndfile/
+  FFmpeg (standard permissive/LGPL export tooling).
+- **Blocked**: Adobe DeepAFx -- confirmed by reading its actual LICENSE
+  file, the "Adobe Research License" restricts the entire repository to
+  "noncommercial research purposes only," explicitly excluding "any...
+  activity which results in commercial gain." Same category as Demucs's
+  weights, just for the neural-mastering piece instead of stem
+  separation.
+- **Blocked or undetermined**: Demucs/HTDemucs and BS-RoFormer/MDXC
+  checkpoints -- both already audited (see the earlier stem-separation
+  section); this document's MDX/UVR-ecosystem recommendation
+  (`Anjok07/ultimatevocalremovergui`, `nomadkaraoke/python-audio-
+  separator`) is almost certainly the same problem or worse, since it
+  wraps dozens of community-trained checkpoints from largely
+  undocumented sources rather than one team's models.
+
+Net result: three of the document's own flagship recommendations for its
+two most-emphasized pages (Separate, and the neural half of Mixing/
+Mastering) are legally blocked or undetermined for anything beyond
+personal/research use -- not a small caveat on an otherwise-green-lit
+plan. Reported to the user plainly rather than building against it; user
+chose, given that, to scope the shared child-process/IPC prerequisite
+architecture rather than commit to a specific model.
+
+**What's real**: `ChildProcessEngine.h` (new, `native/BeatShoreDesktop/
+Source`) generalizes `NodeEngine.h`'s own mechanism -- which turned out
+to already be process-agnostic in everything but name, `start()` just
+took an exe path and a script path -- into a genuine, reusable base:
+spawn any child process, expose its stdin/stdout as the same deadline-
+bound, cancellable line interface (`OverlappedPipeIO`) Node's own
+integration already proved in production (real cancellation, real
+crash/respawn handling in `main.cpp`). `NodeEngine.h` is now a thin
+wrapper over it (`start(nodeExe, scriptPath)` delegates to
+`ChildProcessEngine::start(nodeExe, {scriptPath}, "Node")`) -- unchanged
+public API, unchanged behavior, zero edits needed to `main.cpp` or the
+existing `NodeEngineTest`. `PythonEngine.h` is the new counterpart for a
+Python child (`-u` flag forced, see below for why).
+
+**A real bug found and fixed while generalizing, not invented for the
+occasion**: the original pipe names
+(`\\.\pipe\BeatShoreNodeStdin.<pid>`/`...Stdout.<pid>`) were unique per
+PROCESS, not per ENGINE INSTANCE. `main.cpp`'s own `runNodeWorker()`
+already creates one `NodeEngine` per worker thread, all inside the same
+process sharing the same PID -- a second concurrent worker's
+`CreateNamedPipeA` (which uses `FILE_FLAG_FIRST_PIPE_INSTANCE`, so a name
+collision fails outright rather than silently sharing the pipe) would
+have failed to start at all. Latent today if only one Node worker is
+actually configured; would become live and immediately visible the
+moment a second Node worker or a Python engine ran alongside it. Fixed
+by keying pipe names on PID + a short tag + a process-wide atomic
+instance counter, guaranteeing uniqueness regardless of how many engines
+end up running concurrently -- verified directly (see below), not just
+reasoned about.
+
+**A real, non-obvious platform detail, confirmed by actually hitting
+it**: Python fully buffers stdout whenever it isn't attached to a real
+terminal -- true of every redirected pipe. Left alone, a script's
+`print()` output would sit in an internal buffer and never reach this
+process's pipe read until the buffer filled or the script exited,
+silently breaking real-time line IPC (every read would time out, not
+error -- easily misread as "the mechanism doesn't work for Python" when
+the actual cause is Python's own I/O policy). Fixed with the standard
+`-u` flag, baked into `PythonEngine::start()` itself, not left for a
+future caller to remember.
+
+**Verified two ways, both real, neither claiming more than they proved**:
+1. `NodeEngineTest` (existing, unmodified) rebuilt clean against the
+   refactored `NodeEngine.h` and still passes both its scenarios --
+   confirms the generalization is a genuine behavior-preserving
+   refactor, not a rewrite that happens to compile.
+2. A new `PythonEngineTest`
+   (`native/BridgeClientTest/Source/python_engine_test.cpp`) drives a
+   REAL `python.exe` (not a mock) through a minimal real proof-of-concept
+   script (`native/BeatShoreDesktop/python_engine/echo_engine.py` --
+   READY handshake, PING/PONG, SHUTDOWN, deliberately matching the same
+   READY convention `main.cpp` already validates for Node). **16/16
+   checks passed**, including two specifically designed to catch the two
+   real problems found above: a full READY-then-PING/PONG round trip
+   (would time out if `-u` weren't forced) and two concurrent engine
+   instances in the same process, each getting back its OWN payload, not
+   the other's (would have failed to even start the second instance
+   under the old per-PID-only pipe naming).
+
+**Explicitly NOT done, on purpose**: no model is wired into
+`main.cpp`'s actual request routing or `AnalysisScheduler`'s job types.
+This is prerequisite plumbing, chosen and scoped as such -- picking a
+specific model (from the clear list: DAC, EnCodec, or MT3) and actually
+integrating it is a separate, later decision, not started here.
+`BeatShoreDesktop.exe` itself was not rebuilt with this refactor this
+session (`NodeEngine`'s public behavior is unchanged either way, so
+there's no functional urgency) since it was actively running, connected
+to a live REAPER session, when this work finished -- rebuilding it would
+have dropped that connection mid-session.
+
 ### First round (for reference)
 
 - **No Inno Setup installed in this environment**, so the script has never

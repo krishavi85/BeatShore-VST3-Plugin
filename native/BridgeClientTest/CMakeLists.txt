@@ -296,3 +296,27 @@ target_link_libraries(StateRoundTripTest
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
 )
+
+# Proves PythonEngine.h/ChildProcessEngine.h (native/BeatShoreDesktop/
+# Source) genuinely work through a REAL python.exe -- the actual
+# prerequisite architecture a future real ML backend (DAC/EnCodec/MT3/
+# etc, see STATUS.md's ML-stack scoping) would run in. No JUCE dependency
+# needed: ChildProcessEngine.h is plain Win32 + the existing
+# OverlappedPipeIO.h primitive, same as NodeEngine.h always was.
+juce_add_console_app(PythonEngineTest PRODUCT_NAME "PythonEngineTest")
+
+target_sources(PythonEngineTest PRIVATE Source/python_engine_test.cpp)
+
+target_compile_definitions(PythonEngineTest
+    PRIVATE
+        JucePlugin_VersionString="0.1.0-pythonenginetest"
+        ECHO_ENGINE_SCRIPT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreDesktop/python_engine/echo_engine.py"
+)
+
+target_link_libraries(PythonEngineTest
+    PRIVATE
+        juce::juce_core
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags
+)

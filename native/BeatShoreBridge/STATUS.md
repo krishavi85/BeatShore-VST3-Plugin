@@ -2901,6 +2901,103 @@ correctly wired to it; it does not and cannot exercise
 `SliderParameterAttachment`/`ButtonParameterAttachment`'s own UI-thread
 code the way dragging a real knob would.
 
+### Twenty-first: real EBU R128 loudness/true-peak metering -- the Master page, and the first vendored third-party library
+
+Following up on a curated open-source list the user shared (a ChatGPT
+conversation surveying options for the still-unbuilt blueprint pages):
+**libebur128** (MIT) stood out as the strongest next real vertical --
+small, permissively-licensed, no ML model or training involved, same
+"process this plugin's own real audio" shape as MixChain. Built the same
+way as Mix and Humanize: one complete, real, independently-verified
+feature, not a mockup.
+
+**What's real**: vendored libebur128 unmodified into
+`Source/third_party/libebur128/` (`ebur128.c`/`.h` plus its own bundled
+`<sys/queue.h>` replacement for MSVC -- see that directory's own
+`VENDORED.md` for the exact upstream commit and license text, copied
+verbatim). `Source/MasterMeter.h` (new file) wraps the C API: `prepare()`/
+`reset()` manage an `ebur128_state*`, `process()` interleaves JUCE's
+per-channel buffers into a reusable scratch buffer (grown once, never
+reallocated per block) and feeds `ebur128_add_frames_float()`, then reads
+momentary (400ms)/short-term (3s)/integrated LUFS and true peak back out
+-- all on the SAME thread that just wrote to it (confirmed by reading
+libebur128's own docs: its query functions aren't documented safe against
+a concurrent writer), publishing results into `std::atomic<double>`s a UI
+timer reads lock-free, the same cross-thread contract `HostSnapshot`
+already uses. `PluginProcessor` feeds it every block with whatever's
+about to go back to the host -- AFTER the Mix block, so Master reflects
+this plugin's actual output when Mix is engaged, not the pre-Mix signal --
+and services a reset request (raised by the editor's Reset Meter button)
+the same request/service pattern already used for the ring-buffer swap,
+rather than letting the message thread call `ebur128_destroy()`/
+`ebur128_init()` concurrently with the audio thread's own writes.
+
+**Master is now the fifth real page**: four live read-only readouts
+(Momentary/Short-Term/Integrated LUFS, True Peak) refreshed every
+`timerCallback()` tick, plus one real control (Reset Meter). Unlike Mix,
+there's no "disabled" state to gate behind -- observing audio costs far
+less than filtering it, and a meter with nothing to show is just idle
+numbers, not added risk -- so it's always running, matching how
+`HostSnapshot` itself is never gated behind a page either.
+
+**A real build problem, found and fixed, not routed around**: the first
+build failed with `error C2065: 'M_PI': undeclared identifier` in
+`ebur128.c` -- MSVC's `<math.h>` doesn't define `M_PI` unless
+`_USE_MATH_DEFINES` is set before it's included (the vendored file's own
+top-of-file comment says so outright: *"You may have to define
+_USE_MATH_DEFINES if you use MSVC"*). Fixed via a CMake
+`set_source_files_properties()` scoped to just that one file, not a
+project-wide define and not an edit to the vendored source itself -- so
+"vendored unmodified" in `VENDORED.md` stays true.
+
+**Verified two ways:**
+1. Clean rebuild, zero errors, and the Steinberg Validator still **47/47**.
+2. A new standalone console test, `MasterMeterTest`
+   (`native/BridgeClientTest/Source/mastermeter_test.cpp`), includes the
+   REAL `MasterMeter.h` directly and feeds it synthetic tones, same
+   approach as `MixChainTest` and for the same reason: Master has no
+   protocol round trip to exercise with a request/response smoke test.
+   **5/5 checks passed**, with a genuine correction caught mid-session,
+   the same category of honesty as the Twentieth section's Limiter
+   discovery: the first version of check 1 asserted a remembered
+   "-3.01 LUFS BS.1770 calibration reference" for a STEREO dual-mono
+   full-scale 1kHz tone -- real measured result was ~0.007 LUFS, and the
+   check failed. Investigating rather than just loosening the tolerance
+   found the actual error: -3.01dB is a sine wave's real RMS-vs-peak
+   relationship, a different fact than K-weighted LUFS, and the "-3.01
+   LUFS" figure I was recalling turns out to apply to a MONO channel, not
+   stereo (confirmed by re-running the same tone through a mono-prepared
+   `MasterMeter`: **-3.0036 LUFS**, matching almost exactly). The test was
+   corrected to check the mono case against a physically-reasoned band
+   derived from first principles (sine RMS-vs-peak plus BS.1770's
+   documented K-weighting shelf response near 1kHz) instead of an
+   unverified memorized constant, and a second, calibration-independent
+   check (halving amplitude measurably lowers momentary loudness by
+   almost exactly 6.02dB -- a real power relationship, true regardless of
+   any absolute reference) was kept as the primary proof the DSP is
+   correct. Also verified: digital silence reads as -inf, true peak
+   tracks `20*log10(amplitude)` for an oversampled tone, and `reset()`
+   genuinely restarts Integrated LUFS rather than silently continuing to
+   average in whatever played before it.
+
+**Not yet verified**: opening the Master page in REAPER and confirming
+the readouts move sensibly while real audio plays, and that Reset Meter
+visibly restarts them -- the same environment limitation noted for every
+other real-audio feature in this project (no way to drive a native GUI or
+generate real playback here). `MasterMeterTest` proves the measurement
+math is genuinely correct against synthetic signals with known properties;
+it doesn't exercise `PluginProcessor`'s own block-by-block feed or the
+editor's `timerCallback()` read-out path the way an actual REAPER session
+would.
+
+**Deployed and hash-verified**: after confirming REAPER was closed (the
+user closed it and said so), both this feature and the Twentieth
+section's Mix build were robocopied together to the real
+`C:\Users\krish\AppData\Local\Programs\Common\VST3\BeatShore Bridge.vst3`
+REAPER loads from, and the deployed copy's SHA-256
+(`c097ae2b2d83891dc492b40be1696814f06061b63ddbb5ac4c2c9d31d63a7042`)
+confirmed to match the freshly built one exactly.
+
 ### First round (for reference)
 
 - **No Inno Setup installed in this environment**, so the script has never

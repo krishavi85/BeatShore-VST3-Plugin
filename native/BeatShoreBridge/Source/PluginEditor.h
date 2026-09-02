@@ -9,16 +9,18 @@
 // the "BeatShore Reverse Studio" design blueprint the user shared (see
 // STATUS.md's "Eighteenth"/"Nineteenth" sections) -- WITHOUT pretending any
 // of that blueprint's unbuilt features (stem separation, spectral repair,
-// sound matching, mastering, AI chat) exist. Four of the ten sidebar
-// sections have real content: Overview (host context readouts), Transcribe
-// (every analysis/transcription trigger this plugin actually has),
-// Humanize (real, honest, non-ML parameterized randomization applied to
-// whichever MIDI-producing kind is triggered next -- see
-// dsp.applyHumanization() in beatshore-dsp.js), and Mix (a real EQ +
-// Compressor + Limiter -- see MixChain.h -- running live on this plugin's
-// own audio in processBlock(), the first page whose controls are genuine
-// host AudioProcessorParameters rather than a plugin-local setting). The
-// other six show an explicit, honest "not built yet" state -- never a
+// sound matching, AI chat) exist. Five of the ten sidebar sections have
+// real content: Overview (host context readouts), Transcribe (every
+// analysis/transcription trigger this plugin actually has), Humanize
+// (real, honest, non-ML parameterized randomization applied to whichever
+// MIDI-producing kind is triggered next -- see dsp.applyHumanization() in
+// beatshore-dsp.js), Mix (a real EQ + Compressor + Limiter -- see
+// MixChain.h -- running live on this plugin's own audio in processBlock(),
+// the first page whose controls are genuine host AudioProcessorParameters
+// rather than a plugin-local setting), and Master (real EBU R128
+// loudness/true-peak metering -- see MasterMeter.h, libebur128 -- of
+// whatever this plugin is actually about to hand back to the host). The
+// other five show an explicit, honest "not built yet" state -- never a
 // working-looking control wired to nothing.
 //
 // Every juce::Label/juce::TextButton below is the SAME control this editor
@@ -31,9 +33,10 @@
 // its header rather than buried in one tab), does not change what happens
 // when a button is clicked or what a status label's text means.
 // PluginProcessor.h/.cpp, BridgeClient.h, the protocol, and the desktop
-// broker are untouched by the reorg itself; Mix is the one page that DOES
-// add new real state to PluginProcessor (MixChain + 6 parameters), all in
-// processBlock()'s own audio path, not the analysis/broker path at all.
+// broker are untouched by the reorg itself; Mix and Master are the two
+// pages that DO add new real state to PluginProcessor (MixChain + 6
+// parameters; MasterMeter + a Snapshot), both entirely in processBlock()'s
+// own audio path, not the analysis/broker path at all.
 class BeatShoreBridgeAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                    private juce::Timer
 {
@@ -82,7 +85,7 @@ private:
     enum class Page { Overview, Separate, Repair, Transcribe, Reconstruct, Humanize, SoundMatch, Mix, Master, Export };
     static constexpr int kNumPages = 10;
     static const char* pageName(Page);
-    static bool pageIsBuilt(Page); // true for Overview/Transcribe/Humanize/Mix
+    static bool pageIsBuilt(Page); // true for Overview/Transcribe/Humanize/Mix/Master
     void showPage(Page);
     void updateControlVisibility(); // sets setVisible() on every page's controls to match currentPage -- geometry stays whatever resized() last computed for the active page
 
@@ -167,14 +170,28 @@ private:
     std::unique_ptr<juce::SliderParameterAttachment> eqLowShelfAttachment, eqMidPeakAttachment, eqHighShelfAttachment,
                                                       compThresholdAttachment, compRatioAttachment, limiterThresholdAttachment;
 
+    // ---- Master page -----------------------------------------------
+    // Real EBU R128 loudness + true-peak metering (see MasterMeter.h,
+    // libebur128) of this plugin's own final output -- read-only, unlike
+    // every other real page: nothing here is a control the user sets,
+    // it's live measurement of audio actually flowing through, refreshed
+    // every timerCallback() tick the same way the Overview page's host
+    // readouts are. resetMeterButton is the one interactive control:
+    // clears Integrated LUFS and the true-peak hold back to "no
+    // measurement yet" so a user can start a fresh reading mid-session.
+    juce::Label masterSectionLabel, masterExplainerLabel;
+    juce::Label momentaryLufsCaption, shortTermLufsCaption, integratedLufsCaption, truePeakCaption;
+    juce::Label momentaryLufsLabel, shortTermLufsLabel, integratedLufsLabel, truePeakLabel;
+    juce::TextButton resetMeterButton;
+
     // ---- Shared "not built yet" page (Separate/Repair/Reconstruct/
-    // Sound Match/Master/Export) -----------------------------------
+    // Sound Match/Export) -----------------------------------
     juce::Label comingSoonTitleLabel, comingSoonBodyLabel;
 
     // Card-panel bounds computed once in resized(), read back in paint() to
     // draw the glowing background behind each section -- geometry only,
     // doesn't affect any control's actual bounds/hit-testing.
-    juce::Rectangle<float> hostPanelBounds, bridgePanelBounds, quickAnalysisPanelBounds, transcribePanelBounds, humanizePanelBounds, mixPanelBounds, comingSoonPanelBounds;
+    juce::Rectangle<float> hostPanelBounds, bridgePanelBounds, quickAnalysisPanelBounds, transcribePanelBounds, humanizePanelBounds, mixPanelBounds, masterPanelBounds, comingSoonPanelBounds;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatShoreBridgeAudioProcessorEditor)
 };

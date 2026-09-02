@@ -6,6 +6,7 @@
 #include <vector>
 #include "BridgeTypes.h"
 #include "MixChain.h"
+#include "MasterMeter.h"
 
 class BridgeClient;
 
@@ -129,6 +130,18 @@ public:
     juce::RangedAudioParameter& getCompThresholdParameter() { return *compThresholdParam; }
     juce::RangedAudioParameter& getCompRatioParameter() { return *compRatioParam; }
     juce::RangedAudioParameter& getLimiterThresholdParameter() { return *limiterThresholdParam; }
+
+    // Real EBU R128 loudness + true-peak metering (see MasterMeter.h) of
+    // whatever this plugin is actually about to hand back to the host --
+    // after Mix, if Mix is enabled. Message-thread only (a Timer poll);
+    // the atomics inside Snapshot are what make that safe to read while
+    // the audio thread concurrently writes them every block.
+    const MasterMeter::Snapshot& getMasterSnapshot() const { return masterSnapshot; }
+    // Message-thread: just raises a flag processBlock() services on the
+    // audio thread (same request/service pattern as the ring-buffer swap
+    // above) -- resetting libebur128's internal state directly from here
+    // would race a concurrent add_frames_float() call.
+    void requestMasterMeterReset() { masterMeterResetRequested.store(true, std::memory_order_relaxed); }
 
     bool isAnalysisInFlight() const;
     double getAnalysisProgress() const; // 0..1, meaningful only while isAnalysisInFlight()
@@ -274,6 +287,18 @@ private:
     // scope doesn't call for.
     float lastEqLowGain = 0.0f, lastEqMidGain = 0.0f, lastEqHighGain = 0.0f;
     float lastCompThreshold = 0.0f, lastCompRatio = 1.0f, lastLimiterThreshold = 0.0f;
+
+    // Real EBU R128 loudness/true-peak metering for the Master page (see
+    // MasterMeter.h) -- always fed, unlike MixChain above, since observing
+    // audio costs far less than filtering/compressing it and (unlike Mix)
+    // there's no "disabled" state that would make skipping it meaningful:
+    // a meter with nothing to show is just idle numbers, not extra risk.
+    // masterSnapshot is written by processBlock() (audio thread) and read
+    // by the editor's Timer (message thread) -- safe because every field
+    // is a std::atomic, the same cross-thread contract hostSnapshot uses.
+    MasterMeter masterMeter;
+    MasterMeter::Snapshot masterSnapshot;
+    std::atomic<bool> masterMeterResetRequested { false }; // message thread sets; audio thread services (see requestMasterMeterReset())
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatShoreBridgeAudioProcessor)
 };

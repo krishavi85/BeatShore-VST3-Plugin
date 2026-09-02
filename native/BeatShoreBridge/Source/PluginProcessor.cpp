@@ -284,6 +284,14 @@ void BeatShoreBridgeAudioProcessor::prepareToPlay(double sampleRate, int samples
     // sample rate.
     lastEqLowGain = lastEqMidGain = lastEqHighGain = std::numeric_limits<float>::quiet_NaN();
     lastCompThreshold = lastCompRatio = lastLimiterThreshold = std::numeric_limits<float>::quiet_NaN();
+
+    // A sample-rate/channel-count change genuinely invalidates any
+    // in-progress loudness measurement (libebur128 has no "change
+    // parameters mid-stream and keep history" path worth using here --
+    // see MasterMeter::prepare()), so this always starts the Master
+    // meter's Integrated LUFS and true-peak hold fresh, same as opening a
+    // new session would.
+    masterMeter.prepare(sampleRate, static_cast<int>(spec.numChannels));
 }
 
 void BeatShoreBridgeAudioProcessor::releaseResources()
@@ -429,6 +437,16 @@ void BeatShoreBridgeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffe
         juce::dsp::AudioBlock<float> block(buffer);
         mixChain.process(block, false);
     }
+
+    // Real EBU R128 loudness/true-peak metering (see MasterMeter.h) of
+    // exactly what's about to go back to the host -- reads `buffer` AFTER
+    // the Mix block above, not before, so Master reflects this plugin's
+    // actual output when Mix is engaged, not the pre-Mix signal.
+    // getArrayOfReadPointers() returns a pointer into JUCE's own
+    // already-allocated per-channel array -- no allocation on this thread.
+    if (masterMeterResetRequested.exchange(false, std::memory_order_acq_rel))
+        masterMeter.reset();
+    masterMeter.process(buffer.getArrayOfReadPointers(), buffer.getNumSamples(), masterSnapshot);
 
     if (auto* hostPlayHead = getPlayHead())
     {

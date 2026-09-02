@@ -34,6 +34,33 @@ target_sources(BeatShoreBridge
         Source/BridgeClient.h
         Source/BridgeTypes.h
         Source/MixChain.h
+        Source/MasterMeter.h
+        # libebur128 (MIT, vendored unmodified in Source/third_party/
+        # libebur128 -- see that directory's VENDORED.md): real EBU R128
+        # loudness/true-peak measurement for the Master page, wrapped by
+        # MasterMeter.h above. A plain C library, not JUCE/C++.
+        Source/third_party/libebur128/ebur128.c
+        Source/third_party/libebur128/ebur128.h
+)
+
+# ebur128.c does `#include <sys/queue.h>` (angle brackets -- a real system
+# header on BSD/Linux, not available on MSVC) -- libebur128 ships its own
+# vendored replacement at third_party/libebur128/queue/sys/queue.h; this is
+# what puts that directory on the include path so the angle-bracket include
+# resolves to the vendored copy instead of failing to find a system one.
+target_include_directories(BeatShoreBridge
+    PRIVATE
+        Source/third_party/libebur128/queue
+)
+
+# ebur128.c's own top-of-file comment says it outright: "You may have to
+# define _USE_MATH_DEFINES if you use MSVC" -- MSVC's <math.h> doesn't
+# define M_PI unless this is set before it's included, unlike glibc's.
+# Scoped to just this one source file (via CMake source-file properties,
+# not a project-wide define) so it stays true that nothing in the vendored
+# file itself was edited -- see third_party/libebur128/VENDORED.md.
+set_source_files_properties(Source/third_party/libebur128/ebur128.c PROPERTIES
+    COMPILE_DEFINITIONS "_USE_MATH_DEFINES"
 )
 
 target_compile_definitions(BeatShoreBridge

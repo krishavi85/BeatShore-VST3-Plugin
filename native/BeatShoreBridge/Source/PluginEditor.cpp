@@ -347,6 +347,46 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     setupMixKnob(compRatioSlider, compRatioLabel, "COMP RATIO", compRatioAttachment, processor.getCompRatioParameter());
     setupMixKnob(limiterThresholdSlider, limiterThresholdLabel, "LIMITER", limiterThresholdAttachment, processor.getLimiterThresholdParameter());
 
+    // --- Master page ---------------------------------------------------
+    // Real, read-only EBU R128 loudness/true-peak metering (see
+    // MasterMeter.h, libebur128) of this plugin's own final output --
+    // every readout below is overwritten every timerCallback() tick from
+    // processor.getMasterSnapshot(), the same live-refresh pattern the
+    // Overview page's host-context labels already use.
+    styleHeading(masterSectionLabel, "MASTER (REAL EBU R128 LOUDNESS + TRUE PEAK METERING)");
+    addAndMakeVisible(masterSectionLabel);
+
+    styleValue(masterExplainerLabel);
+    masterExplainerLabel.setFont(juce::Font(juce::FontOptions(11.5f)));
+    masterExplainerLabel.setColour(juce::Label::textColourId, juce::Colour(kTextDim));
+    masterExplainerLabel.setText(
+        "Real libebur128 measurement of this plugin's own output (after Mix, if Mix is enabled) -- "
+        "not a request to BeatShore Desktop. Integrated LUFS and the true-peak hold accumulate from "
+        "when playback started (or the last Reset), same as a real mastering meter.",
+        juce::dontSendNotification);
+    masterExplainerLabel.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(masterExplainerLabel);
+
+    auto setupMeterReadout = [this](juce::Label& caption, juce::Label& value, const juce::String& captionText)
+    {
+        styleHeading(caption, captionText);
+        caption.setJustificationType(juce::Justification::centred);
+        addAndMakeVisible(caption);
+
+        value.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
+        value.setColour(juce::Label::textColourId, juce::Colour(kLive));
+        value.setJustificationType(juce::Justification::centred);
+        addAndMakeVisible(value);
+    };
+    setupMeterReadout(momentaryLufsCaption, momentaryLufsLabel, "MOMENTARY");
+    setupMeterReadout(shortTermLufsCaption, shortTermLufsLabel, "SHORT-TERM");
+    setupMeterReadout(integratedLufsCaption, integratedLufsLabel, "INTEGRATED");
+    setupMeterReadout(truePeakCaption, truePeakLabel, "TRUE PEAK");
+
+    resetMeterButton.setButtonText("Reset Meter");
+    resetMeterButton.onClick = [this] { processor.requestMasterMeterReset(); };
+    addAndMakeVisible(resetMeterButton);
+
     // Wider than the single-column layout this replaced -- room for the
     // sidebar alongside a page's content. Height sized for the taller of
     // the real pages (Transcribe); Overview/Humanize/the placeholder pages
@@ -383,7 +423,7 @@ const char* BeatShoreBridgeAudioProcessorEditor::pageName(Page page)
 
 bool BeatShoreBridgeAudioProcessorEditor::pageIsBuilt(Page page)
 {
-    return page == Page::Overview || page == Page::Transcribe || page == Page::Humanize || page == Page::Mix;
+    return page == Page::Overview || page == Page::Transcribe || page == Page::Humanize || page == Page::Mix || page == Page::Master;
 }
 
 void BeatShoreBridgeAudioProcessorEditor::showPage(Page page)
@@ -412,7 +452,8 @@ void BeatShoreBridgeAudioProcessorEditor::updateControlVisibility()
     const bool isTranscribe = currentPage == Page::Transcribe;
     const bool isHumanize = currentPage == Page::Humanize;
     const bool isMix = currentPage == Page::Mix;
-    const bool isComingSoon = !isOverview && !isTranscribe && !isHumanize && !isMix;
+    const bool isMaster = currentPage == Page::Master;
+    const bool isComingSoon = !isOverview && !isTranscribe && !isHumanize && !isMix && !isMaster;
 
     for (auto* c : { &hostSectionLabel, &sampleRateLabel, &blockSizeLabel, &tempoLabel, &timeSigLabel, &transportLabel, &playheadLabel })
         c->setVisible(isOverview);
@@ -437,6 +478,13 @@ void BeatShoreBridgeAudioProcessorEditor::updateControlVisibility()
              &eqHighShelfSlider, &eqHighShelfLabel, &compThresholdSlider, &compThresholdLabel,
              &compRatioSlider, &compRatioLabel, &limiterThresholdSlider, &limiterThresholdLabel })
         c->setVisible(isMix);
+
+    for (auto* c : std::initializer_list<juce::Component*>{
+             &masterSectionLabel, &masterExplainerLabel,
+             &momentaryLufsCaption, &shortTermLufsCaption, &integratedLufsCaption, &truePeakCaption,
+             &momentaryLufsLabel, &shortTermLufsLabel, &integratedLufsLabel, &truePeakLabel,
+             &resetMeterButton })
+        c->setVisible(isMaster);
 
     comingSoonTitleLabel.setVisible(isComingSoon);
     comingSoonBodyLabel.setVisible(isComingSoon);
@@ -548,6 +596,10 @@ void BeatShoreBridgeAudioProcessorEditor::paint(juce::Graphics& g)
     else if (currentPage == Page::Mix)
     {
         drawPanel(g, mixPanelBounds, juce::Colour(kLive), 2.0f);
+    }
+    else if (currentPage == Page::Master)
+    {
+        drawPanel(g, masterPanelBounds, juce::Colour(kLive), 2.0f);
     }
     else
     {
@@ -722,6 +774,32 @@ void BeatShoreBridgeAudioProcessorEditor::resized()
         layoutKnob(compThresholdSlider, compThresholdLabel);
         layoutKnob(compRatioSlider, compRatioLabel);
         layoutKnob(limiterThresholdSlider, limiterThresholdLabel);
+    }
+    else if (currentPage == Page::Master)
+    {
+        masterPanelBounds = content.toFloat();
+        auto inner = content.reduced(16, 14);
+        masterSectionLabel.setBounds(inner.removeFromTop(16));
+        inner.removeFromTop(6);
+        masterExplainerLabel.setBounds(inner.removeFromTop(48));
+        inner.removeFromTop(18);
+
+        auto readoutRow = inner.removeFromTop(90);
+        const int cellWidth = readoutRow.getWidth() / 4;
+        auto layoutReadout = [&](juce::Label& caption, juce::Label& value)
+        {
+            auto cell = readoutRow.removeFromLeft(cellWidth).reduced(6, 0);
+            caption.setBounds(cell.removeFromTop(16));
+            cell.removeFromTop(4);
+            value.setBounds(cell.removeFromTop(40));
+        };
+        layoutReadout(momentaryLufsCaption, momentaryLufsLabel);
+        layoutReadout(shortTermLufsCaption, shortTermLufsLabel);
+        layoutReadout(integratedLufsCaption, integratedLufsLabel);
+        layoutReadout(truePeakCaption, truePeakLabel);
+
+        inner.removeFromTop(16);
+        resetMeterButton.setBounds(inner.removeFromTop(28).withSizeKeepingCentre(140, 28));
     }
     else
     {
@@ -977,6 +1055,24 @@ void BeatShoreBridgeAudioProcessorEditor::timerCallback()
         applyResult(result);
 
     openExportFolderButton.setEnabled(!lastMidiPath.isEmpty());
+
+    // Master page: read the real MasterMeter::Snapshot atomics processBlock()
+    // wrote this same tick's worth of blocks into. formatLufs() renders the
+    // -100.0 sentinel (see MasterMeter::kNegInf) as "-inf", matching how a
+    // real loudness meter shows true silence -- not a literal "-100.0".
+    {
+        auto formatLufs = [](double v, const char* unit)
+        {
+            return v <= MasterMeter::kNegInf + 0.001
+                       ? juce::String("-inf ") + unit
+                       : juce::String(v, 1) + " " + unit;
+        };
+        const auto& masterSnap = processor.getMasterSnapshot();
+        momentaryLufsLabel.setText(formatLufs(masterSnap.momentaryLufs.load(), "LUFS"), juce::dontSendNotification);
+        shortTermLufsLabel.setText(formatLufs(masterSnap.shortTermLufs.load(), "LUFS"), juce::dontSendNotification);
+        integratedLufsLabel.setText(formatLufs(masterSnap.integratedLufs.load(), "LUFS"), juce::dontSendNotification);
+        truePeakLabel.setText(formatLufs(masterSnap.truePeakDb.load(), "dBTP"), juce::dontSendNotification);
+    }
 
     repaint(); // drives the status-dot pulse and in-flight progress bar in paint()
 }

@@ -194,3 +194,43 @@ target_link_libraries(MixChainTest
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
 )
+
+# Direct, no-protocol verification of MasterMeter.h (native/BeatShoreBridge/
+# Source/MasterMeter.h) -- the real libebur128-backed EBU R128 loudness/
+# true-peak meter PluginProcessor.cpp feeds in processBlock(), included
+# here unmodified. Same reasoning as MixChainTest above: Master has no
+# protocol round trip either, so this is the only way to prove the
+# measurement is real. Builds the vendored libebur128 C source directly
+# (same file BeatShoreBridge itself compiles) rather than depending on
+# that other CMake project's build output.
+juce_add_console_app(MasterMeterTest PRODUCT_NAME "MasterMeterTest")
+
+target_sources(MasterMeterTest
+    PRIVATE
+        Source/mastermeter_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/third_party/libebur128/ebur128.c
+)
+
+target_include_directories(MasterMeterTest
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/third_party/libebur128/queue
+)
+
+# Same MSVC M_PI fix as native/BeatShoreBridge/CMakeLists.txt -- see that
+# file's own comment for why (ebur128.c's own top-of-file note).
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/third_party/libebur128/ebur128.c PROPERTIES
+    COMPILE_DEFINITIONS "_USE_MATH_DEFINES"
+)
+
+target_compile_definitions(MasterMeterTest
+    PRIVATE
+        JucePlugin_VersionString="0.1.0-mastermetertest"
+)
+
+target_link_libraries(MasterMeterTest
+    PRIVATE
+        juce::juce_core
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags
+)

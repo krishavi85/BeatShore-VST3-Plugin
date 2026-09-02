@@ -26,6 +26,17 @@ Protocol:
              "success": true, "noteCount": 2, "midiPath": "..."}
             or {"type": "TRANSCRIBE_RESULT", "requestId": "...",
              "success": false, "error": "..."}
+  Progress: {"type": "ANALYSIS_PROGRESS", "requestId": "...",
+             "progress": 0.1..0.85}
+            Two real, honest checkpoints -- genuine phase transitions this
+            script actually passes through (audio loaded/resampled; model
+            inference finished, about to write the file) -- NOT a
+            fabricated smooth animation. mt3_infer.transcribe() itself is
+            a single blocking call with no internal progress callback, so
+            there is no finer-grained signal available to report
+            truthfully; main.cpp's runPythonRequest() forwards these
+            straight to the requesting session rather than treating them
+            as the terminal response.
   Shutdown: {"type": "SHUTDOWN"}
 """
 import json
@@ -104,7 +115,18 @@ def handle_transcribe(msg: dict) -> dict:
         if src_sr != MR_MT3_TARGET_SR:
             audio = resample_linear(audio, src_sr, MR_MT3_TARGET_SR)
 
+        # Real checkpoint: audio is loaded and at the model's target
+        # sample rate -- about to enter the one call this script can't see
+        # inside of (transcribe() itself, a single blocking forward pass
+        # with no per-step callback of its own).
+        send({"type": "ANALYSIS_PROGRESS", "requestId": request_id, "progress": 0.1})
+
         midi = transcribe(audio, model="mr_mt3", sr=MR_MT3_TARGET_SR)
+
+        # Real checkpoint: model inference is done and note events are
+        # decoded -- about to write the .mid file, the last real step.
+        send({"type": "ANALYSIS_PROGRESS", "requestId": request_id, "progress": 0.85})
+
         midi.save(msg["outputMidiPath"])
 
         note_on_count = sum(

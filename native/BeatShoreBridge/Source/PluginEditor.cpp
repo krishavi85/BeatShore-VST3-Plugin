@@ -197,12 +197,22 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     quickResultLabel.setText("No analysis run yet.", juce::dontSendNotification);
     addAndMakeVisible(quickResultLabel);
 
-    styleHeading(transcribeSectionLabel, "TRANSCRIPTION (PIANO / GUITAR / DRUMS / BASS)");
+    styleHeading(transcribeSectionLabel, "TRANSCRIPTION (PIANO/GUITAR, DRUMS, BASS/LEAD, MT3)");
     addAndMakeVisible(transcribeSectionLabel);
 
-    transcribeButton.setButtonText("Transcribe Piano/Guitar (last 10s captured)");
+    transcribeButton.setButtonText("Transcribe Piano/Guitar (basic-pitch, last 10s captured)");
     transcribeButton.onClick = [this] { transcribeButtonClicked(); };
     addAndMakeVisible(transcribeButton);
+
+    // MR-MT3 (mt3-infer) -- a real, separate neural transcription engine
+    // from transcribeButton's basic-pitch above, Python-routed through
+    // BeatShore Desktop (see main.cpp's runMt3Worker, mt3_engine.py, and
+    // STATUS.md's "Twenty-fifth" section). Not a duplicate button: two
+    // genuinely different models, kept as two genuinely separate results
+    // rather than picking a "better" one to expose.
+    mt3Button.setButtonText("Transcribe (MT3 -- polyphonic, neural, last 10s captured)");
+    mt3Button.onClick = [this] { mt3ButtonClicked(); };
+    addAndMakeVisible(mt3Button);
 
     drumsButton.setButtonText("Transcribe Drums");
     drumsButton.onClick = [this] { drumsButtonClicked(); };
@@ -215,6 +225,14 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     leadButton.setButtonText("Transcribe Lead");
     leadButton.onClick = [this] { leadButtonClicked(); };
     addAndMakeVisible(leadButton);
+
+    // Real cancellation of whatever request (any kind) is currently in
+    // flight -- see PluginProcessor::cancelAnalysis(). Only ever enabled
+    // while something actually is in flight (see timerCallback()).
+    cancelButton.setButtonText("Cancel");
+    cancelButton.setEnabled(false);
+    cancelButton.onClick = [this] { cancelButtonClicked(); };
+    addAndMakeVisible(cancelButton);
 
     styleValue(transcribeStatusLabel);
     transcribeStatusLabel.setText("No transcription run yet.", juce::dontSendNotification);
@@ -229,6 +247,27 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     openExportFolderButton.setEnabled(false);
     openExportFolderButton.onClick = [this] { openExportFolderClicked(); };
     addAndMakeVisible(openExportFolderButton);
+
+    // Real MIDI preview -- see PluginProcessor::setMidiPreviewEnabled()'s
+    // own header comment for exactly what this does and doesn't do (no
+    // in-plugin piano roll or playback synth; real MIDI output, real
+    // silence otherwise). Label text is set every timerCallback() tick to
+    // reflect processor.isMidiPreviewEnabled().
+    previewMidiButton.setButtonText("Preview MIDI");
+    previewMidiButton.setEnabled(false);
+    previewMidiButton.onClick = [this] { previewMidiButtonClicked(); };
+    addAndMakeVisible(previewMidiButton);
+
+    styleValue(previewExplainerLabel);
+    previewExplainerLabel.setFont(juce::Font(juce::FontOptions(10.5f)));
+    previewExplainerLabel.setColour(juce::Label::textColourId, juce::Colour(kTextFaint));
+    previewExplainerLabel.setText(
+        "Preview plays out this plugin's own MIDI output -- no piano roll or synth here. Route it to "
+        "an instrument, or record-arm a MIDI/instrument track downstream to capture and edit it in "
+        "your host's own piano roll.",
+        juce::dontSendNotification);
+    previewExplainerLabel.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(previewExplainerLabel);
 
     // --- Shared "not built yet" page ---------------------------------
     styleHeading(comingSoonTitleLabel, "NOT BUILT YET");
@@ -457,10 +496,30 @@ void BeatShoreBridgeAudioProcessorEditor::showPage(Page page)
 
     if (!pageIsBuilt(page))
     {
+        // Reconstruct gets its own, more specific text: unlike the other
+        // not-built pages, real infrastructure for this one already
+        // exists (two licensed neural audio codecs, DAC and EnCodec, are
+        // wired end-to-end on the desktop side -- see STATUS.md's
+        // "Twenty-fourth"/"Twenty-fifth" sections) but is deliberately
+        // NOT exposed here. A codec is not, by itself, a reconstruction/
+        // repair/timbre-transfer feature -- no button on this page could
+        // honestly describe what clicking it does yet, so none exists.
+        // This stays true even once the underlying engines are proven
+        // and callable; a visible control here needs a defined feature
+        // built on top of them first, not just a working codec.
         comingSoonBodyLabel.setText(
-            juce::String(pageName(page)) + " is part of the BeatShore Reverse Studio design, not built in this "
-            "plugin yet -- see STATUS.md's \"Eighteenth\" section for what that would actually take "
-            "(most of it needs real trained ML models, not just UI wiring).",
+            page == Page::Reconstruct
+                ? juce::String(
+                      "Reconstruct is part of the BeatShore Reverse Studio design, not built in this plugin "
+                      "yet. Two real neural audio codecs (Descript Audio Codec, EnCodec) are already wired "
+                      "end-to-end on the desktop side -- but kept as internal infrastructure only. A codec "
+                      "is not a repair/reconstruction/timbre-transfer feature by itself, and no button here "
+                      "would honestly describe what it does yet -- this page gets a real control once a "
+                      "specific capability is actually built on top of that infrastructure, with a "
+                      "measurable outcome to show for it.")
+                : juce::String(pageName(page)) + " is part of the BeatShore Reverse Studio design, not built in this "
+                  "plugin yet -- see STATUS.md's \"Eighteenth\" section for what that would actually take "
+                  "(most of it needs real trained ML models, not just UI wiring).",
             juce::dontSendNotification);
     }
 
@@ -484,8 +543,9 @@ void BeatShoreBridgeAudioProcessorEditor::updateControlVisibility()
     for (auto* c : std::initializer_list<juce::Component*>{
              &bridgeSectionLabel, &captureStatusLabel, &analyzeTempoButton, &analysisResultLabel,
              &quickAnalysisSectionLabel, &keyButton, &chordsButton, &loudnessButton, &quickResultLabel,
-             &transcribeSectionLabel, &transcribeButton, &drumsButton, &bassButton, &leadButton,
-             &transcribeStatusLabel, &transcribeDetailLabel, &openExportFolderButton })
+             &transcribeSectionLabel, &transcribeButton, &mt3Button, &drumsButton, &bassButton, &leadButton,
+             &cancelButton, &transcribeStatusLabel, &transcribeDetailLabel,
+             &openExportFolderButton, &previewMidiButton, &previewExplainerLabel })
         c->setVisible(isTranscribe);
 
     for (auto* c : std::initializer_list<juce::Component*>{
@@ -729,6 +789,8 @@ void BeatShoreBridgeAudioProcessorEditor::resized()
         transcribeInner.removeFromTop(6);
         transcribeButton.setBounds(transcribeInner.removeFromTop(28));
         transcribeInner.removeFromTop(6);
+        mt3Button.setBounds(transcribeInner.removeFromTop(28));
+        transcribeInner.removeFromTop(6);
         {
             auto buttonRow = transcribeInner.removeFromTop(28);
             const int gap = 6;
@@ -740,10 +802,21 @@ void BeatShoreBridgeAudioProcessorEditor::resized()
             leadButton.setBounds(buttonRow);
         }
         transcribeInner.removeFromTop(6);
+        cancelButton.setBounds(transcribeInner.removeFromTop(24).withSizeKeepingCentre(120, 24));
+        transcribeInner.removeFromTop(6);
         transcribeStatusLabel.setBounds(transcribeInner.removeFromTop(30));
         transcribeDetailLabel.setBounds(transcribeInner.removeFromTop(64));
         transcribeInner.removeFromTop(6);
-        openExportFolderButton.setBounds(transcribeInner.removeFromTop(28));
+        {
+            auto exportRow = transcribeInner.removeFromTop(28);
+            const int gap = 6;
+            const int halfWidth = (exportRow.getWidth() - gap) / 2;
+            openExportFolderButton.setBounds(exportRow.removeFromLeft(halfWidth));
+            exportRow.removeFromLeft(gap);
+            previewMidiButton.setBounds(exportRow);
+        }
+        transcribeInner.removeFromTop(4);
+        previewExplainerLabel.setBounds(transcribeInner.removeFromTop(28));
     }
     else if (currentPage == Page::Humanize)
     {
@@ -920,6 +993,28 @@ void BeatShoreBridgeAudioProcessorEditor::leadButtonClicked()
     transcribeDetailLabel.setText("", juce::dontSendNotification);
 }
 
+void BeatShoreBridgeAudioProcessorEditor::mt3ButtonClicked()
+{
+    transcribeStatusLabel.setText(captureTriggerResultText(processor.triggerMt3Transcription()), juce::dontSendNotification);
+    transcribeDetailLabel.setText("", juce::dontSendNotification);
+}
+
+void BeatShoreBridgeAudioProcessorEditor::cancelButtonClicked()
+{
+    // The real outcome (a CANCELLED error, or -- if the desktop's result
+    // had already landed before this reached it -- the original result
+    // arriving anyway) surfaces through the normal takeAnalysisResult()
+    // poll in timerCallback(), same as every other request's result;
+    // nothing further to do here. See PluginProcessor::cancelAnalysis()/
+    // BridgeClient::requestCancel().
+    processor.cancelAnalysis();
+}
+
+void BeatShoreBridgeAudioProcessorEditor::previewMidiButtonClicked()
+{
+    processor.setMidiPreviewEnabled(!processor.isMidiPreviewEnabled());
+}
+
 void BeatShoreBridgeAudioProcessorEditor::openExportFolderClicked()
 {
     if (lastMidiPath.isEmpty()) return;
@@ -937,7 +1032,7 @@ namespace
     // still need to route to the right label.
     bool isMidiProducingKind(const juce::String& kind)
     {
-        return kind == "transcribePolyphonic" || kind == "transcribeDrums" || kind == "transcribeMono";
+        return kind == "transcribePolyphonic" || kind == "transcribeDrums" || kind == "transcribeMono" || kind == "transcribeMt3";
     }
 }
 
@@ -1053,10 +1148,19 @@ void BeatShoreBridgeAudioProcessorEditor::timerCallback()
     const bool inFlight = processor.isAnalysisInFlight();
     const bool canTrigger = bridgeStatus == BridgeStatus::Connected && !inFlight;
     for (auto* button : { &analyzeTempoButton, &transcribeButton, &keyButton, &chordsButton, &loudnessButton,
-                           &drumsButton, &bassButton, &leadButton })
+                           &drumsButton, &bassButton, &leadButton, &mt3Button })
         button->setEnabled(canTrigger);
+    cancelButton.setEnabled(inFlight); // the inverse gate of every trigger button above -- only ever clickable while something is actually running
     captureStatusLabel.setText(processor.hasCapturedAudio() ? "Capture: audio buffered, ready to analyze" : "Capture: nothing buffered yet",
                                 juce::dontSendNotification);
+
+    // Real MIDI preview controls -- see PluginProcessor::setMidiPreviewEnabled().
+    // Enabled only once a real transcription result has been loaded;
+    // label/toggle state always reflects the processor's actual state
+    // (not this button's own click, in case something else -- a new
+    // transcription result arriving mid-preview -- changed it).
+    previewMidiButton.setEnabled(processor.hasMidiPreviewLoaded());
+    previewMidiButton.setButtonText(processor.isMidiPreviewEnabled() ? "Stop Preview" : "Preview MIDI");
 
     if (inFlight)
     {

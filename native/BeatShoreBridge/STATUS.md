@@ -3405,6 +3405,160 @@ trigger. MT3 could get one fairly directly since it reuses the existing
 feature (see the Twenty-third section) -- the routing now exists and is
 proven, but nothing in the plugin currently calls it.
 
+### Twenty-sixth: MT3's real plugin-side UI, real progress, real cancellation, real MIDI preview via the host -- and a settled DAC/EnCodec product decision
+
+The user gave two explicit, separately-scoped directives this round: build
+MT3's plugin-side UI (option, routing, note display through "BeatShore's
+existing piano-roll/MIDI path", MIDI preview/editing/export, real
+progress/cancellation/errors), and settle DAC/EnCodec as internal-only
+infrastructure with no misleading button. Both are done -- with one
+honest correction surfaced along the way, not silently absorbed: this
+plugin has no piano-roll of its own to "wire into". It's a thin bridge
+hosted inside a real DAW; the DAW's own piano roll is the only genuine
+"existing MIDI path" a plugin like this has. Every piece below is built
+around that correction, not around pretending the phrasing was already
+accurate.
+
+**MT3 UI trigger**: `PluginProcessor::triggerMt3Transcription()` (new,
+[PluginProcessor.h](Source/PluginProcessor.h)/[.cpp](Source/PluginProcessor.cpp)) is the same thin
+`triggerAnalysisOfKind("transcribeMt3")` wrapper every other transcription
+trigger already is. A new `mt3Button` on the Transcribe page
+([PluginEditor.cpp](Source/PluginEditor.cpp)) sits beside the existing
+"Transcribe Piano/Guitar" button, labeled distinctly ("MT3 -- polyphonic,
+neural") since it's a genuinely different model (MR-MT3, Python-routed)
+from that button's basic-pitch/tfjs-node engine, not a duplicate of it.
+Results land in the exact same `transcribeStatusLabel`/
+`transcribeDetailLabel` every other transcription kind already uses --
+`isMidiProducingKind()` just gained `"transcribeMt3"` alongside the three
+kinds already there.
+
+**Real progress, not a stuck 0%.** `runPythonRequest()`'s own comment used
+to say plainly "single-response protocol, no progress messages" -- true
+when written, and would have stayed a real gap for MT3's UI specifically
+(mt3-infer's `transcribe()` is one blocking call with no callback of its
+own, so there was nothing to report). Fixed at two levels:
+- [mt3_engine.py](../BeatShoreDesktop/python_engine/mt3_engine.py) now
+  sends two real `ANALYSIS_PROGRESS` checkpoints -- after the input audio
+  is loaded/resampled (0.1) and after `transcribe()` returns with decoded
+  notes, just before the file write (0.85). Real phase transitions this
+  script actually passes through, not a fabricated smooth animation --
+  there genuinely is no finer-grained signal available from the model
+  itself to report honestly.
+- [main.cpp](../BeatShoreDesktop/Source/main.cpp)'s `runPythonRequest()`
+  gained an optional `outbox` parameter: on seeing `ANALYSIS_PROGRESS` it
+  now forwards the message and keeps waiting, instead of treating it as
+  the terminal response -- the same shape Node's own `runNodeWorker` loop
+  already had, just added to the Python path. DAC/EnCodec's engines never
+  emit progress at all, so this is a structural no-op for them, not a
+  behavior change.
+
+Verified for real, not just by reading the diff: reran
+`PythonRoutingE2ETest` against a live, freshly-rebuilt
+`BeatShoreDesktop.exe` and cross-checked the desktop's own log. The MT3
+request shows exactly three python-engine reads before the terminal one
+-- 72 and 73 bytes (the byte length of the two `ANALYSIS_PROGRESS`
+messages at progress 0.1/0.85) followed by a 165-byte terminal response
+-- and the request still completed with a real, correct `MIDI_RESULT`
+(`noteCount: 2`). That result is the actual proof, not the byte counts
+alone: with the OLD single-response code, the first line back (a
+72-byte progress message, which has no `"success"` field) would have
+been misread as the terminal response and the request would have failed
+with `MT3_FAILED` -- it didn't, so the new "keep waiting past a progress
+message" branch is genuinely exercised and correct, not just present.
+
+**Real cancellation.** `BridgeClient::requestCancel()` has done the real
+work (a multiplexed wait, a real `CANCEL` message, the desktop's own
+CANCEL_REQUESTED/CANCELLED handshake) since it was written -- its own
+header comment even called itself "a future Cancel button". This is that
+button's first real caller: `PluginProcessor::cancelAnalysis()` (new,
+thin wrapper over `bridgeClient->requestCancel()`) and a new `cancelButton`
+on the Transcribe page, enabled exactly when something is actually in
+flight (the inverse gate of every trigger button). Works for any kind,
+not just MT3 -- there was no reason to make it MT3-specific when the
+underlying mechanism already wasn't.
+
+**Real MIDI preview -- through the host, honestly, not a fabricated
+in-plugin piano roll.** This plugin declared `producesMidi()`/
+`acceptsMidi()` true from early in the project but `processBlock()` never
+actually touched the MIDI buffer -- a real, previously-undocumented gap.
+Closed it for real:
+- `PluginProcessor::loadMidiPreviewFile()` (new) parses a completed
+  transcription's `.mid` file into a flat, tempo-converted-to-seconds
+  `juce::MidiMessageSequence` the moment `takeAnalysisResult()` sees a
+  successful MIDI-producing result with a real path -- automatic loading,
+  NOT automatic playback (see below).
+- `PluginProcessor::setMidiPreviewEnabled()` (new) and a new
+  `previewMidiButton` toggle actual playback. `processBlock()` (still
+  genuinely real-time safe -- see its own updated header comment) now
+  walks the loaded sequence each block using an independent, free-running,
+  looping clock (deliberately NOT locked to the host's transport position
+  -- there's no meaningful relationship between a rolling ~10s capture
+  buffer's contents and wherever the host playhead happens to be) and adds
+  the real MIDI events for that block's time window into `midiMessages`,
+  flushing an explicit All-Notes-Off on every loop wrap and on stop/reload
+  so nothing can hang past its own boundary.
+- Old sequences are deliberately never freed once superseded (kept alive
+  in `retiredMidiPreviews` for the plugin instance's lifetime) rather than
+  built around a generation-counted reclaim scheme -- manually-triggered
+  transcriptions are rare and each sequence is at most a few hundred
+  events, so the actual memory cost of "never free" is negligible; adding
+  real cross-thread reclaim complexity here would buy nothing measurable.
+
+**What "preview/editing/export" honestly means for a plugin with no
+piano roll of its own**, stated in the UI itself (`previewExplainerLabel`)
+and here, not oversold: Preview routes real MIDI out through this
+plugin's own MIDI output -- audible if a synth follows it in the signal
+chain, or visible on the host's MIDI meters. Editing is NOT built into
+this plugin; record-arming a downstream MIDI/instrument track captures
+the preview output onto a real MIDI item, which gets genuine editing in
+the *host's* own piano roll (REAPER's, in this project's case) -- the
+only real piano roll that exists anywhere in this stack. Export is
+unchanged and was already real: `openExportFolderButton` reveals the
+actual written `.mid` file, draggable into any DAW track directly.
+
+**DAC/EnCodec: the product decision from the Twenty-third/Twenty-fourth
+sections' open question is now settled, not just left alone.** No button
+exists for either -- that was already true, but the user's directive
+makes it a decided position rather than an unresolved gap: both remain
+internal experimental infrastructure only (real, proven, end-to-end
+working per the Twenty-fifth section -- just not user-facing) until a
+specific neural-reconstruction/timbre-transfer/latent-audio feature is
+actually built on top of them with a measurable outcome to show. Recorded
+in two places so it can't silently drift back into an open question:
+`main.cpp`'s `runAudioCodecWorker` header comment now states this as a
+settled decision rather than "still an open product decision, see
+STATUS.md", and the plugin's own Reconstruct "not built yet" page
+(closest fit in the BeatShore Reverse Studio blueprint for this kind of
+capability) now says so explicitly instead of using the generic
+placeholder text every other not-built page shares.
+
+**Verified for real:**
+- Full rebuild, zero warnings, zero errors (`BeatShoreDesktop.exe`,
+  `BeatShore Bridge.vst3`) -- confirmed via a from-clean object-file
+  rebuild with the full ninja log grepped for "warning"/"error" and
+  finding neither.
+- Steinberg Validator: 47/47 against the freshly built VST3, including
+  its own Process-test battery (which drives `processBlock()`, now a real
+  MIDI producer, many times over) -- no regression from the MIDI-output
+  code path even in its default (preview disabled, nothing loaded) state.
+- `PythonRoutingE2ETest`: still ALL PASSED against a live, freshly-built
+  `BeatShoreDesktop.exe` for all three kinds, confirming the
+  `runPythonRequest()` signature/behavior change didn't regress DAC/
+  EnCodec's own (progress-free) request handling.
+- Deployed and hash-verified to the real
+  `C:\Users\krish\AppData\Local\Programs\Common\VST3\BeatShore Bridge.vst3`
+  REAPER loads from (confirmed REAPER was closed first): deployed copy's
+  SHA-256 (`ea42cd31b9b3...`) matches the freshly built one exactly.
+
+**Not yet done**: no live REAPER acceptance test of the new UI controls
+themselves (button clicks, the preview toggle, cancel mid-request) --
+this environment can't drive a native GUI, the same limitation noted for
+every other real-audio feature in this project. The Validator's 47/47
+proves the plugin doesn't crash or misbehave under Steinberg's own
+conformance sweep with the new code paths present; it doesn't prove "the
+Cancel button visibly does the right thing when clicked in REAPER" the
+way only a human REAPER session can.
+
 ### First round (for reference)
 
 - **No Inno Setup installed in this environment**, so the script has never

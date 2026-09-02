@@ -70,6 +70,16 @@ private:
     void drumsButtonClicked();
     void bassButtonClicked();
     void leadButtonClicked();
+    void mt3ButtonClicked();
+
+    // Cancels whatever request (any kind) is currently in flight --
+    // see PluginProcessor::cancelAnalysis().
+    void cancelButtonClicked();
+
+    // Toggles processor.setMidiPreviewEnabled() -- see its own header
+    // comment for what "preview" actually means for a thin bridge plugin
+    // with no piano roll of its own.
+    void previewMidiButtonClicked();
 
     // Called on every Humanize-page slider/toggle change -- reads all four
     // sliders + the toggle and pushes them to processor.setHumanizeSettings()
@@ -131,9 +141,13 @@ private:
     juce::Label transcribeSectionLabel;
     juce::TextButton transcribeButton;
     juce::TextButton drumsButton, bassButton, leadButton;
+    juce::TextButton mt3Button;    // MR-MT3 (mt3-infer, Python-routed) -- a genuinely different neural transcription engine from transcribeButton's basic-pitch, not a duplicate
+    juce::TextButton cancelButton; // enabled only while processor.isAnalysisInFlight() -- see PluginProcessor::cancelAnalysis()
     juce::Label transcribeStatusLabel;   // in-flight progress / terminal success-or-error state
     juce::Label transcribeDetailLabel;   // note count, processing time, algorithm, source
     juce::TextButton openExportFolderButton;
+    juce::TextButton previewMidiButton;   // toggles processor.setMidiPreviewEnabled() -- enabled only while processor.hasMidiPreviewLoaded()
+    juce::Label previewExplainerLabel;    // what "preview" actually does for a plugin with no piano roll of its own -- route MIDI out, or record it onto a host track
     juce::String lastMidiPath; // empty until a MIDI_RESULT with a written file arrives
 
     // ---- Humanize page ---------------------------------------------

@@ -105,6 +105,45 @@ public:
     CaptureTriggerResult triggerBassTranscription();
     CaptureTriggerResult triggerLeadTranscription();
 
+    // Same MIDI_RESULT shape again, this time from BeatShoreDesktop's
+    // Python-routed MT3 worker (kind "transcribeMt3" -- see main.cpp's
+    // runMt3Worker and mt3_engine.py) rather than analyze.js's own
+    // basic-pitch path triggerPolyphonicTranscription() above uses. A
+    // separate, genuinely different neural transcription model, not a
+    // duplicate button for the same thing -- kept as its own named
+    // trigger method for the same self-documenting-API reason as every
+    // other trigger* method here.
+    CaptureTriggerResult triggerMt3Transcription();
+
+    // Cancels whatever analysis/transcription request is currently in
+    // flight (any kind -- not MT3-specific). BridgeClient has supported
+    // real cancellation since it was written (see its requestCancel()'s
+    // own comment, which called this "a future Cancel button"); this is
+    // simply that button's first real caller. Returns false immediately,
+    // without sending anything, if nothing is in flight.
+    bool cancelAnalysis();
+
+    // Real MIDI preview: plays the most recently completed MIDI-producing
+    // transcription's written .mid file back out through this plugin's
+    // own MIDI output (producesMidi() -- see processBlock()). BeatShore
+    // Bridge has no piano-roll widget of its own to "display notes
+    // through" -- it's a thin bridge plugin hosted inside a real DAW,
+    // and the DAW's own piano roll is the genuine existing MIDI path a
+    // plugin like this has. Route this plugin's MIDI output to a synth
+    // to hear it, or record-arm a downstream MIDI/instrument track to
+    // capture it and get real editing in the host's own piano roll --
+    // this plugin does not (and does not pretend to) implement either
+    // playback synthesis or note editing itself.
+    // An independent, free-running, looping clock -- NOT locked to the
+    // host's transport position; there's no meaningful relationship
+    // between a rolling ~10s capture buffer's contents and wherever the
+    // host playhead happens to be right now. Message-thread only.
+    void setMidiPreviewEnabled(bool shouldPlay);
+    bool isMidiPreviewEnabled() const { return midiPreviewEnabled.load(); }
+    bool hasMidiPreviewLoaded() const { return activeMidiPreview.load() != nullptr; }
+    double getMidiPreviewLengthSeconds() const { return midiPreviewLengthSeconds.load(); }
+    double getMidiPreviewPositionSeconds() const { return midiPreviewPositionSeconds.load(); }
+
     // Set from the editor's Humanize page; applied to whichever
     // MIDI-producing kind is triggered NEXT (not retroactively to an
     // already-completed transcription -- there is no live-editable note
@@ -194,6 +233,13 @@ private:
     // triggerLeadTranscription() -- see BridgeClient::requestAnalysis()'s
     // own comment on it.
     CaptureTriggerResult triggerAnalysisOfKind(const juce::String& kind, const juce::String& role = juce::String());
+
+    // Parses a completed MIDI_RESULT's written file into a flat,
+    // tempo-converted-to-seconds juce::MidiMessageSequence for
+    // processBlock() to play back -- called only from takeAnalysisResult()
+    // when a MIDI-producing kind's result arrives with a real midiPath.
+    // Message-thread only.
+    void loadMidiPreviewFile(const juce::String& midiPath);
 
     HostSnapshot hostSnapshot;
     HumanizeSettings humanizeSettings; // all-zero default -- see setHumanizeSettings()
@@ -299,6 +345,25 @@ private:
     MasterMeter masterMeter;
     MasterMeter::Snapshot masterSnapshot;
     std::atomic<bool> masterMeterResetRequested { false }; // message thread sets; audio thread services (see requestMasterMeterReset())
+
+    // ---- Real MIDI preview (see setMidiPreviewEnabled()) -----------
+    // Every sequence ever loaded this session is kept alive here rather
+    // than freed the instant a newer one replaces it in activeMidiPreview:
+    // the audio thread only ever reads activeMidiPreview via a single
+    // atomic load per block and never touches whatever it pointed at
+    // beyond that block, but freeing the OLD pointee the moment a new one
+    // is published would still race a block that grabbed the old pointer
+    // microseconds earlier. Manually-triggered transcriptions are rare (at
+    // most a handful per session) and each sequence is tiny (at most a few
+    // hundred MIDI events) -- never freeing them is genuinely negligible
+    // memory, not a real leak; a generation-counted reclaim scheme would
+    // add real complexity for no measurable benefit here.
+    std::vector<std::unique_ptr<juce::MidiMessageSequence>> retiredMidiPreviews; // message thread only
+    std::atomic<juce::MidiMessageSequence*> activeMidiPreview { nullptr }; // raw, non-owning -- see retiredMidiPreviews above
+    std::atomic<bool> midiPreviewEnabled { false };          // message thread sets; audio thread reads
+    std::atomic<bool> midiPreviewStopRequested { false };    // message thread sets (on disable, or a new file replacing the one mid-playback); audio thread services by flushing one All-Notes-Off, then clears it
+    std::atomic<double> midiPreviewLengthSeconds { 0.0 };
+    std::atomic<double> midiPreviewPositionSeconds { 0.0 };  // audio thread owns; read-only everywhere else (UI progress readout)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BeatShoreBridgeAudioProcessor)
 };

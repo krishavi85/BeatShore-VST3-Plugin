@@ -79,7 +79,68 @@ bool BeatShoreBridgeAudioProcessor::hasCapturedAudio() const
 
 bool BeatShoreBridgeAudioProcessor::takeAnalysisResult(BridgeAnalysisResult& out)
 {
-    return bridgeClient->takeResult(out);
+    const bool got = bridgeClient->takeResult(out);
+    // Auto-load the MIDI preview the moment a real result arrives -- the
+    // same "load, don't autoplay" split setMidiPreviewEnabled() itself
+    // documents: this only ever populates activeMidiPreview, it never
+    // flips midiPreviewEnabled on by itself. Every MIDI-producing kind
+    // (basic-pitch's transcribePolyphonic, transcribeDrums, transcribeMono,
+    // and MT3's transcribeMt3) shares this identical result shape, so no
+    // kind check is needed here -- an empty midiPath (0 notes found, or a
+    // write failure already surfaced via midiWriteError) is the only thing
+    // that skips this, same guard loadMidiPreviewFile() itself would need.
+    if (got && out.success && !out.midiPath.empty())
+        loadMidiPreviewFile(out.midiPath);
+    return got;
+}
+
+void BeatShoreBridgeAudioProcessor::loadMidiPreviewFile(const juce::String& midiPath)
+{
+    juce::File file(midiPath);
+    juce::FileInputStream stream(file);
+    if (!stream.openedOk()) return; // stale/unreadable path -- the text-based result labels already reported the real outcome, nothing further to do here
+
+    juce::MidiFile midiFile;
+    if (!midiFile.readFrom(stream)) return; // not a MIDI file this JUCE build can parse -- silently skip preview, same reasoning as above
+
+    // Converts every track's event timestamps from ticks to seconds in
+    // place, honoring whatever tempo-map events the file itself carries
+    // (midi-export.js/mt3_engine.py both write a fixed-tempo file, but
+    // this doesn't assume that) -- the standard JUCE way to get a
+    // wall-clock-relative sequence out of a MIDI file.
+    midiFile.convertTimestampTicksToSeconds();
+
+    auto merged = std::make_unique<juce::MidiMessageSequence>();
+    for (int i = 0; i < midiFile.getNumTracks(); ++i)
+        merged->addSequence(*midiFile.getTrack(i), 0.0);
+    merged->sort();
+    merged->updateMatchedPairs();
+
+    const double length = merged->getEndTime();
+
+    // Flush whatever the PREVIOUS sequence left held before swapping the
+    // pointer out from under a possibly-still-preview-enabled processBlock()
+    // -- same stop-and-flush this triggers on an explicit disable (see
+    // setMidiPreviewEnabled()), just triggered by "a new result replaced
+    // the old one" instead of "the user clicked Stop".
+    midiPreviewStopRequested.store(true, std::memory_order_relaxed);
+    midiPreviewLengthSeconds.store(length, std::memory_order_relaxed);
+    midiPreviewPositionSeconds.store(0.0, std::memory_order_relaxed);
+    activeMidiPreview.store(merged.get(), std::memory_order_release);
+    retiredMidiPreviews.push_back(std::move(merged)); // keeps it alive for the rest of this session -- see the header comment on retiredMidiPreviews
+}
+
+bool BeatShoreBridgeAudioProcessor::cancelAnalysis()
+{
+    return bridgeClient->requestCancel();
+}
+
+void BeatShoreBridgeAudioProcessor::setMidiPreviewEnabled(bool shouldPlay)
+{
+    if (!shouldPlay && midiPreviewEnabled.load())
+        midiPreviewStopRequested.store(true, std::memory_order_relaxed); // flush any notes currently held before going silent
+    midiPreviewPositionSeconds.store(0.0, std::memory_order_relaxed); // "Preview" always means "from the top", not "resume" -- true whether this call is turning playback on or off
+    midiPreviewEnabled.store(shouldPlay, std::memory_order_relaxed);
 }
 
 void BeatShoreBridgeAudioProcessor::timerCallback()
@@ -239,6 +300,11 @@ BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcesso
     return triggerAnalysisOfKind("transcribeMono", "lead");
 }
 
+BeatShoreBridgeAudioProcessor::CaptureTriggerResult BeatShoreBridgeAudioProcessor::triggerMt3Transcription()
+{
+    return triggerAnalysisOfKind("transcribeMt3");
+}
+
 bool BeatShoreBridgeAudioProcessor::captureSnapshotForTest(std::vector<float>& outInterleaved, double& outSampleRate)
 {
     outSampleRate = captureSampleRate;
@@ -312,7 +378,13 @@ bool BeatShoreBridgeAudioProcessor::isBusesLayoutSupported(const BusesLayout& la
 // via getPlayHead() is a JUCE-internal read with no I/O of its own, so it's
 // safe here too; publishing it into the atomics is what lets the (non-
 // realtime) editor read it a moment later without touching the audio thread.
-void BeatShoreBridgeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+// The one thing added since that rule was written -- real MIDI preview
+// playback (see setMidiPreviewEnabled()) -- still honors it: it only ever
+// reads an already-built juce::MidiMessageSequence via plain O(1) array
+// accessors (no allocation) and writes into the host-owned midiMessages
+// buffer already passed into this call, exactly the same "read atomics,
+// touch only what's already allocated" shape as everything above it.
+void BeatShoreBridgeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
 
@@ -447,6 +519,82 @@ void BeatShoreBridgeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffe
     if (masterMeterResetRequested.exchange(false, std::memory_order_acq_rel))
         masterMeter.reset();
     masterMeter.process(buffer.getArrayOfReadPointers(), buffer.getNumSamples(), masterSnapshot);
+
+    // Real MIDI preview output (see setMidiPreviewEnabled()/
+    // loadMidiPreviewFile()): an independent, free-running, looping clock
+    // -- NOT locked to the host's own transport position, since there is
+    // no meaningful relationship between a rolling ~10s capture buffer's
+    // contents and wherever the host playhead happens to be right now.
+    // Added into midiMessages rather than replacing it, so this never
+    // discards whatever MIDI (if any) is already flowing through this
+    // track from the host -- consistent with the audio passthrough above
+    // only ever adding processing, never silently dropping input that
+    // isn't this feature's concern.
+    // getNumEvents()/getEventPointer() are plain O(1) accessors into an
+    // already-built juce::MidiMessageSequence -- no allocation, safe here.
+    if (midiPreviewEnabled.load(std::memory_order_relaxed))
+    {
+        if (auto* seq = activeMidiPreview.load(std::memory_order_acquire))
+        {
+            const double sr = getSampleRate();
+            const int numSamples = buffer.getNumSamples();
+            if (sr > 0.0 && numSamples > 0)
+            {
+                const double sequenceLength = juce::jmax(0.05, midiPreviewLengthSeconds.load(std::memory_order_relaxed));
+                double pos = midiPreviewPositionSeconds.load(std::memory_order_relaxed);
+                double remaining = numSamples / sr;
+                double blockOffsetSeconds = 0.0;
+
+                // Bounded loop-wrap count: only a pathologically short
+                // (sub-block-length) sequence could wrap more than once
+                // within a single block: capped so a future bug here
+                // can't spin the audio thread forever.
+                for (int guard = 0; guard < 64 && remaining > 1.0e-9; ++guard)
+                {
+                    const double windowEnd = juce::jmin(pos + remaining, sequenceLength);
+                    for (int i = 0; i < seq->getNumEvents(); ++i)
+                    {
+                        const auto& msg = seq->getEventPointer(i)->message;
+                        const double t = msg.getTimeStamp();
+                        if (t >= pos && t < windowEnd)
+                        {
+                            const int samplePos = juce::jlimit(0, numSamples - 1,
+                                int(std::round((blockOffsetSeconds + (t - pos)) * sr)));
+                            midiMessages.addEvent(msg, samplePos);
+                        }
+                    }
+                    const double consumed = windowEnd - pos;
+                    remaining -= consumed;
+                    blockOffsetSeconds += consumed;
+                    pos = windowEnd;
+
+                    if (pos >= sequenceLength - 1.0e-9)
+                    {
+                        // Loop wrap: flush every channel's held notes right
+                        // at the wrap point so a note that was still
+                        // sounding at the sequence's end can never hang
+                        // past it into the next lap.
+                        const int flushSamplePos = juce::jlimit(0, numSamples - 1, int(std::round(blockOffsetSeconds * sr)));
+                        for (int ch = 1; ch <= 16; ++ch)
+                            midiMessages.addEvent(juce::MidiMessage::allNotesOff(ch), flushSamplePos);
+                        pos = 0.0;
+                    }
+                }
+                midiPreviewPositionSeconds.store(pos, std::memory_order_relaxed);
+            }
+        }
+    }
+
+    // Services a stop request from setMidiPreviewEnabled(false) or a new
+    // result replacing the sequence mid-playback (see
+    // loadMidiPreviewFile()) -- one All-Notes-Off flush per request, not
+    // gated on midiPreviewEnabled being true right now, so a note held
+    // from the OLD state still gets silenced even if playback was just
+    // switched off (or swapped) in the same block that would otherwise
+    // have skipped the block above entirely.
+    if (midiPreviewStopRequested.exchange(false, std::memory_order_acq_rel))
+        for (int ch = 1; ch <= 16; ++ch)
+            midiMessages.addEvent(juce::MidiMessage::allNotesOff(ch), 0);
 
     if (auto* hostPlayHead = getPlayHead())
     {

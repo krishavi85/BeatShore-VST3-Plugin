@@ -762,18 +762,22 @@ static bool startAndValidatePython(PythonEngine& python, const std::string& pyth
 
 enum class PythonRequestOutcome { Ok, Cancelled, TimedOut, EngineExited, WriteFailed };
 
-// Shared core of "send one request, wait for exactly one response line" --
-// factored out of what would otherwise be three near-identical copies of
-// runNodeWorker's own cancel/timeout/stale-response loop (see that
-// function for the reasoning behind each branch; this mirrors it, just
-// for a single-response-per-request protocol instead of Node's
-// progress-message-capable one). On a genuine CANCEL, kills and restarts
-// `engine` in place (Python inference can't be aborted mid-computation
-// any more than Node's can -- same real constraint, same real fix).
+// Shared core of "send one request, wait for exactly one TERMINAL response
+// line" -- factored out of what would otherwise be three near-identical
+// copies of runNodeWorker's own cancel/timeout/stale-response loop (see
+// that function for the reasoning behind each branch; this mirrors it).
+// Real, honest ANALYSIS_PROGRESS checkpoints (see mt3_engine.py) are
+// forwarded to `outbox` as they arrive and don't count as terminal --
+// pass outbox to enable that; omit it (or pass nullptr) for a caller that
+// genuinely doesn't want progress relayed. On a genuine CANCEL, kills and
+// restarts `engine` in place (Python inference can't be aborted
+// mid-computation any more than Node's can -- same real constraint, same
+// real fix).
 static PythonRequestOutcome runPythonRequest(std::unique_ptr<PythonEngine>& engine, const std::string& pythonExe,
                                               const std::string& scriptPath, const std::shared_ptr<AnalysisJob>& job,
                                               HANDLE workerWakeEvent, const std::string& requestLine, DWORD timeoutMs,
-                                              std::string& outResponseLine, const std::string& logPrefix)
+                                              std::string& outResponseLine, const std::string& logPrefix,
+                                              const std::shared_ptr<SessionOutbox>& outbox = nullptr)
 {
     logLine(logPrefix + "-> python: " + redactContent(requestLine));
     if (!engine->writeLine(requestLine)) return PythonRequestOutcome::WriteFailed;
@@ -812,9 +816,34 @@ static PythonRequestOutcome runPythonRequest(std::unique_ptr<PythonEngine>& engi
 
         logLine(logPrefix + "<- python: " + redactContent(line));
 
-        // Single-response protocol (no progress messages) -- the first
-        // line back is always the terminal response, unlike Node's own
-        // loop which keeps reading until a terminal type arrives.
+        // Real, honest progress checkpoints an engine script chooses to
+        // report (see mt3_engine.py's own two -- genuine phase
+        // transitions it actually passes through, not a fabricated
+        // smooth animation) are forwarded straight to the session's
+        // outbox and DON'T end this wait, mirroring Node's own
+        // runNodeWorker loop (which pushes every message it reads and
+        // only stops on a terminal type). Every other line is still
+        // treated as the one-and-only terminal response -- DAC/EnCodec's
+        // engines never emit ANALYSIS_PROGRESS at all, so this is a
+        // structural no-op for them, not a behavior change.
+        if (outbox)
+        {
+            try
+            {
+                Value msg = parse(line);
+                if (msg.has("type") && msg["type"].asString() == "ANALYSIS_PROGRESS")
+                {
+                    Value fwd = Value::object();
+                    fwd.set("type", "ANALYSIS_PROGRESS");
+                    fwd.set("requestId", job->requestId);
+                    if (msg.has("progress")) fwd.set("progress", msg["progress"].asNumber());
+                    outbox->push(toLine(fwd));
+                    continue;
+                }
+            }
+            catch (const std::exception&) { /* not JSON, or no "type" -- fall through and treat as the terminal response, same as before this existed */ }
+        }
+
         outResponseLine = line;
         return PythonRequestOutcome::Ok;
     }
@@ -896,9 +925,16 @@ static bool jsonGetBool(const Value& v, const char* key, bool fallback = false)
 // message shape fits "here's a transformed audio file" (unlike MT3 below,
 // which reuses MIDI_RESULT), so this defines a new, minimal
 // ENCODE_DECODE_RESULT type -- verified end-to-end via a real raw-
-// protocol test client, not yet consumed by the plugin's own UI (that
-// page's actual BeatShore feature is still an open product decision, see
-// STATUS.md).
+// protocol test client. Deliberately NOT wired into any plugin-side UI --
+// this is now a settled product decision, not an open question: DAC and
+// EnCodec are neural audio codecs, not repair/mixing/mastering engines by
+// themselves, and exposing a button for "here's a codec" without a real
+// feature built on top of it would be exactly the kind of working-
+// looking-but-hollow control this project has always refused to ship.
+// Kept as internal experimental infrastructure for whatever real
+// neural-reconstruction/timbre-transfer/latent-audio feature eventually
+// gets built on top of it -- see PluginEditor.cpp's Reconstruct page text
+// and STATUS.md's "Twenty-fifth" section for the fuller version of this.
 // ---------------------------------------------------------------------
 static void runAudioCodecWorker(const char* label, const char* kind,
                                  JobQueue& jobQueue, SessionRegistry& sessionRegistry, std::atomic<bool>& shouldExit,
@@ -967,7 +1003,7 @@ static void runAudioCodecWorker(const char* label, const char* kind,
 
         std::string responseLine;
         const ULONGLONG requestStartTick = GetTickCount64();
-        auto outcome = runPythonRequest(engine, pythonExe, scriptPath, job, workerWakeEvent, stringify(req), 60000, responseLine, logPrefix);
+        auto outcome = runPythonRequest(engine, pythonExe, scriptPath, job, workerWakeEvent, stringify(req), 60000, responseLine, logPrefix, outbox);
         DeleteFileA(wavInPath.c_str()); // input conversion is scratch, not the caller's audio -- always safe to remove once the request has been sent
 
         if (outcome == PythonRequestOutcome::Cancelled)
@@ -1087,7 +1123,7 @@ static void runMt3Worker(JobQueue& jobQueue, SessionRegistry& sessionRegistry, s
 
         std::string responseLine;
         const ULONGLONG requestStartTick = GetTickCount64();
-        auto outcome = runPythonRequest(engine, pythonExe, scriptPath, job, workerWakeEvent, stringify(req), 60000, responseLine, logPrefix);
+        auto outcome = runPythonRequest(engine, pythonExe, scriptPath, job, workerWakeEvent, stringify(req), 60000, responseLine, logPrefix, outbox);
 
         if (outcome == PythonRequestOutcome::Cancelled)
         {

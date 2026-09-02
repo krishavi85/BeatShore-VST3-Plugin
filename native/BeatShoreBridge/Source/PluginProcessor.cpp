@@ -484,13 +484,58 @@ juce::AudioProcessorEditor* BeatShoreBridgeAudioProcessor::createEditor()
     return new BeatShoreBridgeAudioProcessorEditor(*this);
 }
 
+// Was a placeholder that saved nothing ("No user-configurable parameters
+// exist yet") from back before Mix/Master/Humanize existed, and was never
+// updated when they were added -- a real, confirmed bug, not a REAPER
+// quirk: found via a live REAPER acceptance test where a render's output
+// kept reverting to unprocessed audio despite the Mix page visibly
+// showing real, non-default values immediately beforehand. That's exactly
+// what happens when a host builds a fresh/offline plugin instance for a
+// render and restores it via getStateInformation()/setStateInformation()
+// -- with the old placeholder, the restored instance had nothing to
+// restore, so it silently fell back to every parameter's default
+// (Mix Enabled = false). The same root cause would have broken REAPER
+// project save/reload for these parameters too, not just rendering.
+//
+// Fixed generically rather than by hand-listing the 7 Mix parameters:
+// walks getParameters() and saves each one's real ParameterID (from
+// RangedAudioParameter::getParameterID(), stable across reordering,
+// unlike array index) and its normalized 0..1 value -- so this
+// automatically covers every current AudioProcessorParameter (including
+// mixEnabledParam and all six Mix float params) and any added later,
+// with no further change needed here. triggerAnalysisParam is included
+// too for the same genericity, even though as a momentary trigger it
+// should almost always be saved as false.
+//
+// humanizeSettings is NOT an AudioProcessorParameter (see its own header
+// comment on why -- it's a plugin-local setting, not a host-automatable
+// one), so it's serialized separately, by hand, alongside the parameters.
 void BeatShoreBridgeAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     juce::ValueTree state("BeatShoreBridgeState");
     state.setProperty("version", stateVersion, nullptr);
-    // No user-configurable parameters exist yet — this is a placeholder
-    // structure so a future version has somewhere to add them without
-    // breaking the version-check path below.
+
+    juce::ValueTree params("Parameters");
+    for (auto* param : getParameters())
+    {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+        {
+            juce::ValueTree p("Param");
+            p.setProperty("id", ranged->getParameterID(), nullptr);
+            p.setProperty("value", ranged->getValue(), nullptr); // normalized 0..1 -- range-independent, survives a future range change
+            params.appendChild(p, nullptr);
+        }
+    }
+    state.appendChild(params, nullptr);
+
+    juce::ValueTree humanize("Humanize");
+    humanize.setProperty("timing", humanizeSettings.timing, nullptr);
+    humanize.setProperty("velocity", humanizeSettings.velocity, nullptr);
+    humanize.setProperty("dynamics", humanizeSettings.dynamics, nullptr);
+    humanize.setProperty("articulation", humanizeSettings.articulation, nullptr);
+    humanize.setProperty("preserveGroove", humanizeSettings.preserveGroove, nullptr);
+    state.appendChild(humanize, nullptr);
+
     if (auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -507,6 +552,38 @@ void BeatShoreBridgeAudioProcessor::setStateInformation(const void* data, int si
             // Ignore rather than guess — do not silently corrupt state.
             juce::Logger::writeToLog("BeatShoreBridge: state version " + juce::String(loadedVersion)
                                       + " is newer than this build (" + juce::String(stateVersion) + "); ignoring saved state.");
+            return;
+        }
+
+        if (auto params = state.getChildWithName("Parameters"); params.isValid())
+        {
+            for (const auto& p : params)
+            {
+                const juce::String id = p.getProperty("id", juce::String());
+                const float value = p.getProperty("value", 0.0f);
+                for (auto* param : getParameters())
+                {
+                    if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param); ranged != nullptr && ranged->getParameterID() == id)
+                    {
+                        // setValueNotifyingHost(), not setValue() directly --
+                        // this is the standard JUCE way to programmatically
+                        // change a parameter from inside the processor (as
+                        // opposed to a UI gesture) while still keeping the
+                        // host and any UI attachments correctly in sync.
+                        ranged->setValueNotifyingHost(value);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (auto humanize = state.getChildWithName("Humanize"); humanize.isValid())
+        {
+            humanizeSettings.timing = humanize.getProperty("timing", 0.0f);
+            humanizeSettings.velocity = humanize.getProperty("velocity", 0.0f);
+            humanizeSettings.dynamics = humanize.getProperty("dynamics", 0.0f);
+            humanizeSettings.articulation = humanize.getProperty("articulation", 0.0f);
+            humanizeSettings.preserveGroove = humanize.getProperty("preserveGroove", false);
         }
     }
 }

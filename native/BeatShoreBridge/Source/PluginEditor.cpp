@@ -285,6 +285,29 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     preserveGrooveToggle.onClick = [this] { humanizeControlsChanged(); };
     addAndMakeVisible(preserveGrooveToggle);
 
+    // Reflect whatever's actually in the processor right now -- covers
+    // both a genuinely restored project (setStateInformation() having
+    // just run before the editor was created) and the more common case
+    // of simply closing and reopening this plugin's own window mid-
+    // session, which constructs a brand new Editor against the SAME
+    // still-alive Processor. Without this, both cases would silently
+    // show all-zero sliders while the processor (and therefore whatever
+    // transcription runs next) was still using the real, non-zero
+    // amounts underneath -- the sliders would lie about the plugin's
+    // actual state. dontSendNotification: this is populating the UI FROM
+    // existing state, not a user edit that should push a value back into
+    // setHumanizeSettings() (which would be a harmless no-op here anyway,
+    // but sending notifications for four sliders + a toggle during
+    // construction is needless work).
+    {
+        const auto restored = processor.getHumanizeSettings();
+        timingSlider.setValue(restored.timing * 100.0, juce::dontSendNotification);
+        velocitySlider.setValue(restored.velocity * 100.0, juce::dontSendNotification);
+        dynamicsSlider.setValue(restored.dynamics * 100.0, juce::dontSendNotification);
+        articulationSlider.setValue(restored.articulation * 100.0, juce::dontSendNotification);
+        preserveGrooveToggle.setToggleState(restored.preserveGroove, juce::dontSendNotification);
+    }
+
     // --- Mix page ---------------------------------------------------
     // A real 3-band EQ + Compressor + Limiter running in processBlock() on
     // the live audio through this plugin (see MixChain.h) -- the first Mix

@@ -2998,6 +2998,95 @@ REAPER loads from, and the deployed copy's SHA-256
 (`c097ae2b2d83891dc492b40be1696814f06061b63ddbb5ac4c2c9d31d63a7042`)
 confirmed to match the freshly built one exactly.
 
+### Twenty-second: a real bug, found live in REAPER -- getStateInformation() was a no-op placeholder
+
+The first genuinely live REAPER acceptance test of this session's real
+features (Overview, Transcribe, Humanize, Mix, Master) surfaced an actual
+bug, not a REAPER quirk or user error -- worth recording exactly how it
+was found, since the finding process is itself the evidence this wasn't
+guessed at.
+
+**Symptom**: testing whether Mix produces an audible change, an offline
+render with real, confirmed-live Mix settings (screenshotted on the
+plugin's own UI immediately before rendering: Mix Enabled ticked, six
+real non-default knob values) kept coming back numerically identical to
+the unprocessed baseline -- three render attempts in a row, the last one
+with the UI state photographically confirmed correct at render time,
+ruling out "forgot to tick the checkbox."
+
+**Root cause, found by reading the actual code**: `getStateInformation()`
+was exactly what its own comment said it was -- *"No user-configurable
+parameters exist yet — this is a placeholder structure"* -- written
+before any real parameter existed and never updated since. It saved
+nothing but a version number. `setStateInformation()` correspondingly had
+nothing to restore. Since this plugin adds its parameters directly via
+`addParameter()` (not `AudioProcessorValueTreeState`, which would have
+handled this automatically), JUCE does not persist parameter values on
+its own -- that's the plugin's own responsibility, and this plugin had
+never actually done it. REAPER's offline render builds/restores a
+separate plugin instance via exactly this save/restore path, so a fresh
+instance with nothing to restore from silently fell back to every
+parameter's default (`mixEnabledParam` = false) -- explaining the exact
+symptom observed. The same root cause would have broken REAPER project
+save/reload identically, for the identical reason, before that row of
+the acceptance table was ever reached.
+
+**Fixed generically, not by hand-listing Mix's seven parameters**:
+`getStateInformation()`/`setStateInformation()` (`PluginProcessor.cpp`)
+now walk `getParameters()` and save/restore each one by its real
+`RangedAudioParameter::getParameterID()` (stable across reordering,
+unlike array index) and its normalized 0..1 value via
+`setValueNotifyingHost()` -- so this automatically covers every current
+parameter (`mixEnabledParam` and all six Mix float params) and any added
+later, with no further change needed here if a future page adds new real
+parameters. `humanizeSettings` -- not a real `AudioProcessorParameter` by
+design (see its own header comment) -- is serialized alongside by hand,
+since the generic parameter walk can't reach it.
+
+**A second, related gap fixed while investigating**: even with state now
+correctly persisted, the Humanize page's four sliders and Preserve
+Groove toggle had no reverse sync from processor to UI at all -- they
+were hardcoded to zero in the editor's constructor regardless of what
+`humanizeSettings` actually held. The Mix page didn't have this problem
+(its real `SliderParameterAttachment`/`ButtonParameterAttachment`s
+already sync from the parameter via their own `sendInitialUpdate()`), but
+Humanize's plain sliders needed an explicit fix: the constructor now
+reads `processor.getHumanizeSettings()` and initializes all five controls
+from it. Without this, even correctly-restored state would have looked
+wrong the moment a user reopened the Humanize page or the plugin window.
+
+**Verified with a new, real test, not just "it compiles"**: a new
+`StateRoundTripTest` console app
+(`native/BridgeClientTest/Source/state_roundtrip_test.cpp`) compiles the
+REAL `PluginProcessor.cpp`/`PluginEditor.cpp` (same pattern as the
+existing `BridgeStressTest`), sets every real parameter and
+`humanizeSettings` to distinctive non-default values on one processor
+instance, saves its state, and restores that state onto a SECOND,
+independently-constructed instance -- exactly the save-into-a-fresh-
+instance path that was actually broken, not a same-instance round trip
+that could pass even with the old placeholder still assigning nothing.
+**14/14 checks passed**: all seven parameters and all five Humanize
+fields restored correctly on the fresh instance, and (a deliberate
+negative check) a THIRD, completely untouched instance still defaulted
+Mix Enabled to false, ruling out any accidental cross-instance state
+leakage from the fix itself.
+
+**A side effect of investigating, also fixed**: `BridgeStressTest`
+(existing, compiles the same real `PluginProcessor.cpp`/`PluginEditor.cpp`
+pair) was missing the `juce_dsp`/libebur128 dependencies those files have
+needed since the Mix and Master features were added earlier this
+session -- meaning it would have failed to build the next time anyone
+tried, independent of this bug. Fixed alongside `StateRoundTripTest`'s
+own CMake setup, same dependency list.
+
+**Verified**: Steinberg Validator still 47/47 after the fix.
+
+**Not yet verified**: the actual REAPER render/save-reload re-run that
+prompted this fix in the first place -- this was found and fixed based
+on reading the code and an independent, rigorous standalone test, not
+yet re-confirmed live in the REAPER session that originally surfaced it.
+That's the natural next step once this build is deployed.
+
 ### First round (for reference)
 
 - **No Inno Setup installed in this environment**, so the script has never

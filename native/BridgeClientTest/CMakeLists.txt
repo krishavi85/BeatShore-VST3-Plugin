@@ -42,6 +42,22 @@ target_sources(BridgeStressTest
         Source/stress_main.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/PluginProcessor.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/PluginEditor.cpp
+        # juce_dsp (MixChain.h) and libebur128 (MasterMeter.h) -- both
+        # added to PluginProcessor.cpp/.h after this target was first
+        # written; without these two lines this target fails to
+        # link (undefined ebur128_* symbols) or even compile
+        # (missing juce_dsp headers). Same deps StateRoundTripTest
+        # below needs, for the same reason.
+        ${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/third_party/libebur128/ebur128.c
+)
+
+target_include_directories(BridgeStressTest
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/third_party/libebur128/queue
+)
+
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/third_party/libebur128/ebur128.c PROPERTIES
+    COMPILE_DEFINITIONS "_USE_MATH_DEFINES"
 )
 
 target_compile_definitions(BridgeStressTest
@@ -53,6 +69,7 @@ target_compile_definitions(BridgeStressTest
 target_link_libraries(BridgeStressTest
     PRIVATE
         juce::juce_audio_utils
+        juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
@@ -230,6 +247,51 @@ target_compile_definitions(MasterMeterTest
 target_link_libraries(MasterMeterTest
     PRIVATE
         juce::juce_core
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags
+)
+
+# Direct proof that getStateInformation()/setStateInformation() actually
+# round-trip real plugin state onto a SECOND, freshly-constructed
+# processor instance -- exactly the path a host uses for an offline
+# render or a project reload, and exactly the path the old placeholder
+# implementation silently failed (see Source/state_roundtrip_test.cpp's
+# own header comment for how this bug was actually found: a live REAPER
+# render kept reverting to unprocessed audio despite the Mix page
+# visibly showing real values). Compiles the REAL PluginProcessor.cpp/
+# PluginEditor.cpp, same pattern as BridgeStressTest below -- needs the
+# same juce_dsp/libebur128 dependencies BeatShoreBridge itself now needs,
+# since PluginProcessor.cpp includes MixChain.h and MasterMeter.h.
+juce_add_console_app(StateRoundTripTest PRODUCT_NAME "StateRoundTripTest")
+
+target_sources(StateRoundTripTest
+    PRIVATE
+        Source/state_roundtrip_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/PluginProcessor.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/PluginEditor.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/third_party/libebur128/ebur128.c
+)
+
+target_include_directories(StateRoundTripTest
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/third_party/libebur128/queue
+)
+
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/../BeatShoreBridge/Source/third_party/libebur128/ebur128.c PROPERTIES
+    COMPILE_DEFINITIONS "_USE_MATH_DEFINES"
+)
+
+target_compile_definitions(StateRoundTripTest
+    PRIVATE
+        JucePlugin_Name="BeatShore Bridge"
+        JucePlugin_VersionString="0.1.0-stateroundtriptest"
+)
+
+target_link_libraries(StateRoundTripTest
+    PRIVATE
+        juce::juce_audio_utils
+        juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags

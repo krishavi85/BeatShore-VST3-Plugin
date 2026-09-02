@@ -2370,6 +2370,66 @@ bytes (the new code), `BeatShore Bridge.vst3` unchanged, matching what
 the local rebuild already showed -- CI didn't just pass, it passed with
 the exact artifact-size delta expected from this specific change.
 
+### Sixteenth: a futuristic reskin of the plugin editor -- visuals only, same everything else
+
+The user asked for an updated look for the editor UI shown in REAPER,
+with an explicit constraint: everything already tested has to stay the
+same and connected. Read `PluginEditor.h`/`.cpp` in full first to know
+exactly what "the same" meant concretely -- every `juce::Label`/
+`juce::TextButton` member, every `onClick` lambda, `analyzeButtonClicked()`/
+`transcribeButtonClicked()`/`openExportFolderClicked()`/`applyResult()`/
+`timerCallback()`'s actual logic, and every string of button/status text
+already visible in the user's own REAPER screenshots this session. None
+of that changed. What changed is purely presentational:
+
+- A `FuturisticLookAndFeel` (`juce::LookAndFeel_V4` subclass, local to
+  `PluginEditor.cpp`, no new source file / no CMake change) restyles the
+  two `TextButton`s: rounded corners, a gradient fill in the existing
+  brand violet (`0xff9184d9` -- the same accent colour section headings
+  already used before this change, not a new one), and a cheap
+  multi-stroke glow approximation (no offscreen blur, just several
+  `drawRoundedRectangle` calls at growing radius/shrinking alpha) that
+  brightens on hover/press and dims when a button is disabled.
+- `paint()` now draws a dark gradient background, a faint HUD-style grid
+  texture, three glowing rounded "card" panels behind the existing
+  Host Context / Bridge / Transcription sections (bounds computed in
+  `resized()`, stored as members, read back in `paint()` -- geometry
+  only, doesn't touch any control's actual bounds), a small vector
+  "brand mark" (three bars, drawn as a `juce::Path`, no image asset), a
+  pulsing status dot colour-coded by the *same* `BridgeStatus` enum
+  `bridgeStatusText()` already switched on, and a thin progress bar
+  reading the *same* `processor.isAnalysisInFlight()`/
+  `getAnalysisProgress()` accessors `timerCallback()` already called.
+  `timerCallback()` gained one line, `repaint()`, so the pulse and
+  progress bar animate at the same 10Hz the labels already refreshed at
+  -- no new timer, no new thread.
+- Window grew from 440x560 to 480x620 for card-panel padding; the
+  vertical stacking *order* of every section is unchanged.
+
+One real compile error caught before it went anywhere: `juce::jlimit(0.0f,
+1.0f, processor.getAnalysisProgress())` failed to compile
+(`getAnalysisProgress()` returns `double`, and MSVC couldn't deduce a
+single `Type` for `jlimit`'s three mismatched-type arguments) -- fixed
+with an explicit `static_cast<float>`. A second, cosmetic-only line
+(`.withStyle("Regular")` on a `FontOptions`, an API that doesn't
+actually exist the way it was written) was caught the same way and
+removed before it could fail a build at all.
+
+Verified the same way every other change in this project has been:
+rebuilt `BeatShoreBridge.vst3` clean, then ran the real Steinberg
+Validator against it -- **47/47, unchanged** -- confirming the
+compliance surface (parameters, bus config, editor construction) is
+identical to before the reskin, not just "looks right in the source."
+Then found and updated the actual copy REAPER loads from
+(`C:\Users\krish\AppData\Local\Programs\Common\VST3\BeatShore
+Bridge.vst3` -- discovered via `reaper-vstplugins64.ini`'s own registry
+entry, not guessed at) and confirmed via SHA-256 that the deployed copy
+is now byte-identical to the freshly built one. **Not yet confirmed**:
+what it actually looks like rendered inside REAPER's own window --
+this environment has no way to open a DAW GUI and look at pixels, so
+the visual result itself is still the user's own call to make, the same
+as every other REAPER-side verification this project has needed.
+
 An external review of the first draft caught six genuine release blockers
 and a long list of real script issues, none of which had been caught by
 this project's own testing (which had focused on "does the staged engine

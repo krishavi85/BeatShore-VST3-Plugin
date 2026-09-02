@@ -1,27 +1,118 @@
 #include "PluginEditor.h"
 
+// ---------------------------------------------------------------------------
+// Futuristic palette. Built AROUND the existing brand accent (0xff9184d9,
+// the violet already used for section headings before this reskin) rather
+// than replacing it -- a cyan/teal secondary accent marks "live/connected"
+// state, everything else is the same violet-on-near-black identity this
+// project already had, just with glow, gradient, and card panels added.
+// ---------------------------------------------------------------------------
 namespace
 {
+    constexpr uint32_t kBgTop      = 0xff0a0e1c;
+    constexpr uint32_t kBgBottom   = 0xff141c33;
+    constexpr uint32_t kPanelFill  = 0xd9161b2e; // ~85% alpha
+    constexpr uint32_t kAccent     = 0xff9184d9; // unchanged brand violet
+    constexpr uint32_t kAccentDim  = 0x669184d9;
+    constexpr uint32_t kLive       = 0xff4dd9c9; // cyan-teal "connected/live" accent
+    constexpr uint32_t kWarn       = 0xffffd166; // unchanged -- was already bridgeStatusLabel's default colour
+    constexpr uint32_t kError      = 0xffff6b6b;
+    constexpr uint32_t kTextPrime  = 0xffe9e9ed; // unchanged
+    constexpr uint32_t kTextDim    = 0xff8a8d9a; // unchanged
+    constexpr uint32_t kTextFaint  = 0xff55586b;
+
     void styleHeading(juce::Label& l, const juce::String& text)
     {
         l.setText(text, juce::dontSendNotification);
-        l.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::bold)));
-        l.setColour(juce::Label::textColourId, juce::Colour(0xff9184d9));
+        l.setFont(juce::Font(juce::FontOptions(12.5f, juce::Font::bold)));
+        l.setColour(juce::Label::textColourId, juce::Colour(kAccent));
     }
 
     void styleValue(juce::Label& l)
     {
-        l.setFont(juce::Font(juce::FontOptions(14.0f)));
-        l.setColour(juce::Label::textColourId, juce::Colour(0xffe9e9ed));
+        l.setFont(juce::Font(juce::FontOptions(13.5f)));
+        l.setColour(juce::Label::textColourId, juce::Colour(kTextPrime));
     }
+
+    // Cheap glow approximation: stroke the same rounded rect several times
+    // with growing size and shrinking alpha, rather than a real blur --
+    // fast enough to redraw at the timer's 10Hz without any offscreen
+    // buffering.
+    void drawGlowRoundedRect(juce::Graphics& g, juce::Rectangle<float> bounds, float cornerSize,
+                              juce::Colour glowColour, float glowRadius, float coreAlpha = 0.9f)
+    {
+        for (float r = glowRadius; r > 0.0f; r -= 1.0f)
+        {
+            const float alpha = coreAlpha * (1.0f - r / glowRadius) * 0.35f;
+            g.setColour(glowColour.withAlpha(alpha));
+            g.drawRoundedRectangle(bounds.expanded(r), cornerSize + r, 1.0f);
+        }
+        g.setColour(glowColour.withAlpha(coreAlpha));
+        g.drawRoundedRectangle(bounds, cornerSize, 1.2f);
+    }
+
+    // A custom LookAndFeel_V4 for just the two TextButton types this editor
+    // uses -- rounded, gradient-filled, glowing on hover, dimmed when
+    // disabled. Button identity (onClick, text, enabled state) is set on
+    // the juce::TextButton objects themselves in the constructor below,
+    // exactly as before; this class only changes how those same buttons
+    // are painted.
+    class FuturisticLookAndFeel final : public juce::LookAndFeel_V4
+    {
+    public:
+        void drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour&,
+                                   bool isHighlighted, bool isDown) override
+        {
+            auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
+            const float corner = 6.0f;
+
+            if (!button.isEnabled())
+            {
+                g.setColour(juce::Colour(0xff1a1d2c));
+                g.fillRoundedRectangle(bounds, corner);
+                g.setColour(juce::Colour(0xff33374a));
+                g.drawRoundedRectangle(bounds, corner, 1.0f);
+                return;
+            }
+
+            const juce::Colour accent(kAccent);
+            juce::ColourGradient fill(accent.withAlpha(isDown ? 0.35f : (isHighlighted ? 0.30f : 0.20f)),
+                                       bounds.getTopLeft(),
+                                       accent.darker(isDown ? 0.6f : 0.4f).withAlpha(0.55f),
+                                       bounds.getBottomRight(), false);
+            g.setGradientFill(fill);
+            g.fillRoundedRectangle(bounds, corner);
+
+            drawGlowRoundedRect(g, bounds, corner, accent, isHighlighted || isDown ? 5.0f : 2.5f,
+                                 isDown ? 1.0f : (isHighlighted ? 0.85f : 0.55f));
+        }
+
+        void drawButtonText(juce::Graphics& g, juce::TextButton& button, bool, bool) override
+        {
+            g.setFont(getTextButtonFont(button, button.getHeight()));
+            g.setColour(button.isEnabled() ? juce::Colour(kTextPrime) : juce::Colour(kTextFaint));
+            g.drawFittedText(button.getButtonText(), button.getLocalBounds().reduced(6, 0),
+                              juce::Justification::centred, 2);
+        }
+
+        juce::Font getTextButtonFont(juce::TextButton&, int buttonHeight) override
+        {
+            return juce::Font(juce::FontOptions(juce::jmin(14.0f, buttonHeight * 0.5f), juce::Font::bold));
+        }
+    };
 }
 
 BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatShoreBridgeAudioProcessor& p)
     : AudioProcessorEditor(&p), processor(p)
 {
+    futuristicLookAndFeel = std::make_unique<FuturisticLookAndFeel>();
+    setLookAndFeel(futuristicLookAndFeel.get());
+    startTimeMs = juce::Time::getMillisecondCounterHiRes();
+
+    // Same title text as before this reskin -- only its font/colour change.
     titleLabel.setText("BeatShore Bridge -- thin passthrough + host context reader", juce::dontSendNotification);
-    titleLabel.setFont(juce::Font(juce::FontOptions(15.0f, juce::Font::bold)));
-    titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    titleLabel.setFont(juce::Font(juce::FontOptions(14.5f, juce::Font::bold)));
+    titleLabel.setColour(juce::Label::textColourId, juce::Colour(kTextPrime));
     addAndMakeVisible(titleLabel);
 
     styleHeading(hostSectionLabel, "HOST CONTEXT");
@@ -37,14 +128,17 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     addAndMakeVisible(bridgeSectionLabel);
 
     styleValue(bridgeStatusLabel);
-    bridgeStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffffd166));
+    bridgeStatusLabel.setColour(juce::Label::textColourId, juce::Colour(kWarn)); // same default as before -- timerCallback() overwrites with the live-status colour
     addAndMakeVisible(bridgeStatusLabel);
 
     styleValue(captureStatusLabel);
-    captureStatusLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
-    captureStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff8a8d9a));
+    captureStatusLabel.setFont(juce::Font(juce::FontOptions(11.5f)));
+    captureStatusLabel.setColour(juce::Label::textColourId, juce::Colour(kTextDim));
     addAndMakeVisible(captureStatusLabel);
 
+    // Same button text, same onClick target -- analyzeButtonClicked() below
+    // is byte-for-byte the same function that already called
+    // processor.triggerTempoAnalysis() before this reskin.
     analyzeTempoButton.setButtonText("Analyze Tempo (last 10s captured)");
     analyzeTempoButton.onClick = [this] { analyzeButtonClicked(); };
     addAndMakeVisible(analyzeTempoButton);
@@ -65,8 +159,8 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     addAndMakeVisible(transcribeStatusLabel);
 
     styleValue(transcribeDetailLabel);
-    transcribeDetailLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
-    transcribeDetailLabel.setColour(juce::Label::textColourId, juce::Colour(0xff8a8d9a));
+    transcribeDetailLabel.setFont(juce::Font(juce::FontOptions(11.5f)));
+    transcribeDetailLabel.setColour(juce::Label::textColourId, juce::Colour(kTextDim));
     addAndMakeVisible(transcribeDetailLabel);
 
     openExportFolderButton.setButtonText("Open Export Folder");
@@ -74,7 +168,11 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
     openExportFolderButton.onClick = [this] { openExportFolderClicked(); };
     addAndMakeVisible(openExportFolderButton);
 
-    setSize(440, 560);
+    // Slightly larger than the previous 440x560 -- room for card-panel
+    // padding and the brand mark. Layout ORDER (title -> host context ->
+    // bridge -> transcription) is unchanged; resized() below just spaces
+    // it more generously.
+    setSize(480, 620);
     startTimerHz(10);
     timerCallback();
 }
@@ -82,48 +180,154 @@ BeatShoreBridgeAudioProcessorEditor::BeatShoreBridgeAudioProcessorEditor(BeatSho
 BeatShoreBridgeAudioProcessorEditor::~BeatShoreBridgeAudioProcessorEditor()
 {
     stopTimer();
+    setLookAndFeel(nullptr);
+}
+
+void BeatShoreBridgeAudioProcessorEditor::drawPanel(juce::Graphics& g, juce::Rectangle<float> bounds,
+                                                      juce::Colour glowColour, float glowAmount) const
+{
+    g.setColour(juce::Colour(kPanelFill));
+    g.fillRoundedRectangle(bounds, 8.0f);
+    drawGlowRoundedRect(g, bounds, 8.0f, glowColour, glowAmount, 0.5f);
+}
+
+void BeatShoreBridgeAudioProcessorEditor::drawStatusDot(juce::Graphics& g, juce::Point<float> centre,
+                                                           juce::Colour colour, float pulsePhase) const
+{
+    const float pulse = 0.5f + 0.5f * std::sin(pulsePhase);
+    for (float r = 7.0f; r > 1.5f; r -= 1.0f)
+    {
+        const float alpha = (0.10f + 0.10f * pulse) * (1.0f - (r - 1.5f) / 5.5f);
+        g.setColour(colour.withAlpha(alpha));
+        g.fillEllipse(juce::Rectangle<float>(r * 2.0f, r * 2.0f).withCentre(centre));
+    }
+    g.setColour(colour);
+    g.fillEllipse(juce::Rectangle<float>(5.0f, 5.0f).withCentre(centre));
+}
+
+void BeatShoreBridgeAudioProcessorEditor::drawBrandMark(juce::Graphics& g, juce::Rectangle<float> bounds) const
+{
+    // Abstract waveform/chevron mark, drawn as vector paths -- no image
+    // asset, so no new binary resource or CMake change needed for this
+    // reskin.
+    juce::Path bars;
+    const float w = bounds.getWidth() / 5.0f;
+    const float heights[3] = { 0.45f, 1.0f, 0.65f };
+    for (int i = 0; i < 3; ++i)
+    {
+        const float h = bounds.getHeight() * heights[i];
+        juce::Rectangle<float> bar(bounds.getX() + i * w * 1.7f, bounds.getBottom() - h, w, h);
+        bars.addRoundedRectangle(bar, w * 0.3f);
+    }
+    g.setColour(juce::Colour(kAccent));
+    g.fillPath(bars);
+    g.setColour(juce::Colour(kLive).withAlpha(0.6f));
+    g.strokePath(bars, juce::PathStrokeType(1.0f));
 }
 
 void BeatShoreBridgeAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff161826));
-    g.setColour(juce::Colour(0xff2a2c36));
+    auto bounds = getLocalBounds().toFloat();
+
+    juce::ColourGradient bg(juce::Colour(kBgTop), bounds.getTopLeft(),
+                             juce::Colour(kBgBottom), bounds.getBottomRight(), false);
+    g.setGradientFill(bg);
+    g.fillAll();
+
+    // Faint HUD-style grid texture -- very low alpha, purely decorative.
+    g.setColour(juce::Colour(kAccent).withAlpha(0.035f));
+    for (float x = 0; x < bounds.getWidth(); x += 24.0f)
+        g.drawVerticalLine(juce::roundToInt(x), 0.0f, bounds.getHeight());
+    for (float y = 0; y < bounds.getHeight(); y += 24.0f)
+        g.drawHorizontalLine(juce::roundToInt(y), 0.0f, bounds.getWidth());
+
+    g.setColour(juce::Colour(kAccent).withAlpha(0.25f));
     g.drawRect(getLocalBounds(), 1);
+
+    drawBrandMark(g, juce::Rectangle<float>(14.0f, 12.0f, 22.0f, 20.0f));
+
+    const double nowMs = juce::Time::getMillisecondCounterHiRes();
+    const float pulsePhase = static_cast<float>((nowMs - startTimeMs) / 1000.0 * juce::MathConstants<double>::twoPi * 0.5);
+
+    const auto bridgeStatus = processor.getBridgeStatus();
+    const auto liveColour = bridgeStatusColour(bridgeStatus);
+
+    drawPanel(g, hostPanelBounds, juce::Colour(kAccent), 2.0f);
+    drawPanel(g, bridgePanelBounds, liveColour, bridgeStatus == BridgeStatus::Connected ? 4.0f : 2.0f);
+    drawPanel(g, transcribePanelBounds, juce::Colour(kAccent), 2.0f);
+
+    // Status dot sits just left of the bridge status label, colour-coded by
+    // the SAME BridgeStatus enum bridgeStatusText() already switches on --
+    // no new connection state, just a second, purely visual read of it.
+    drawStatusDot(g, { bridgeStatusLabel.getBounds().getX() - 10.0f,
+                        bridgeStatusLabel.getBounds().getCentreY() + 0.0f },
+                  liveColour, pulsePhase);
+
+    // Thin "in-flight" progress bar under the two trigger buttons -- reads
+    // processor.isAnalysisInFlight()/getAnalysisProgress(), the same
+    // read-only accessors timerCallback() already calls; nothing new is
+    // exposed from PluginProcessor for this.
+    if (processor.isAnalysisInFlight())
+    {
+        const float progress = juce::jlimit(0.0f, 1.0f, static_cast<float>(processor.getAnalysisProgress()));
+        auto barArea = juce::Rectangle<float>(hostPanelBounds.getX(), getHeight() - 6.0f,
+                                               getWidth() - hostPanelBounds.getX() * 2.0f, 3.0f);
+        g.setColour(juce::Colour(kAccentDim));
+        g.fillRoundedRectangle(barArea, 1.5f);
+        g.setColour(juce::Colour(kLive));
+        g.fillRoundedRectangle(barArea.withWidth(barArea.getWidth() * progress), 1.5f);
+    }
 }
 
 void BeatShoreBridgeAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced(14);
-    titleLabel.setBounds(area.removeFromTop(22));
-    area.removeFromTop(10);
+    auto area = getLocalBounds().reduced(16);
 
-    hostSectionLabel.setBounds(area.removeFromTop(16));
-    sampleRateLabel.setBounds(area.removeFromTop(18));
-    blockSizeLabel.setBounds(area.removeFromTop(18));
-    tempoLabel.setBounds(area.removeFromTop(18));
-    timeSigLabel.setBounds(area.removeFromTop(18));
-    transportLabel.setBounds(area.removeFromTop(18));
-    playheadLabel.setBounds(area.removeFromTop(18));
-
+    auto brandRow = area.removeFromTop(28);
+    titleLabel.setBounds(brandRow.withTrimmedLeft(32));
     area.removeFromTop(12);
-    bridgeSectionLabel.setBounds(area.removeFromTop(16));
-    bridgeStatusLabel.setBounds(area.removeFromTop(20));
-    captureStatusLabel.setBounds(area.removeFromTop(16));
 
-    area.removeFromTop(8);
-    analyzeTempoButton.setBounds(area.removeFromTop(28));
-    area.removeFromTop(6);
-    analysisResultLabel.setBounds(area.removeFromTop(36));
+    // --- Host context card -----------------------------------------------
+    auto hostArea = area.removeFromTop(150);
+    hostPanelBounds = hostArea.toFloat();
+    auto hostInner = hostArea.reduced(14, 10);
+    hostSectionLabel.setBounds(hostInner.removeFromTop(16));
+    hostInner.removeFromTop(4);
+    sampleRateLabel.setBounds(hostInner.removeFromTop(18));
+    blockSizeLabel.setBounds(hostInner.removeFromTop(18));
+    tempoLabel.setBounds(hostInner.removeFromTop(18));
+    timeSigLabel.setBounds(hostInner.removeFromTop(18));
+    transportLabel.setBounds(hostInner.removeFromTop(18));
+    playheadLabel.setBounds(hostInner.removeFromTop(18));
 
-    area.removeFromTop(12);
-    transcribeSectionLabel.setBounds(area.removeFromTop(16));
-    area.removeFromTop(6);
-    transcribeButton.setBounds(area.removeFromTop(28));
-    area.removeFromTop(6);
-    transcribeStatusLabel.setBounds(area.removeFromTop(36));
-    transcribeDetailLabel.setBounds(area.removeFromTop(54));
-    area.removeFromTop(6);
-    openExportFolderButton.setBounds(area.removeFromTop(28));
+    area.removeFromTop(14);
+
+    // --- Bridge + tempo card -----------------------------------------------
+    auto bridgeArea = area.removeFromTop(140);
+    bridgePanelBounds = bridgeArea.toFloat();
+    auto bridgeInner = bridgeArea.reduced(14, 10);
+    bridgeSectionLabel.setBounds(bridgeInner.removeFromTop(16).withTrimmedLeft(14)); // leave room for the status dot drawn in paint()
+    bridgeStatusLabel.setBounds(bridgeInner.removeFromTop(20).withTrimmedLeft(14));
+    captureStatusLabel.setBounds(bridgeInner.removeFromTop(16));
+    bridgeInner.removeFromTop(6);
+    analyzeTempoButton.setBounds(bridgeInner.removeFromTop(28));
+    bridgeInner.removeFromTop(6);
+    analysisResultLabel.setBounds(bridgeInner.removeFromTop(30));
+
+    area.removeFromTop(14);
+
+    // --- Transcription card -------------------------------------------------
+    auto transcribeArea = area;
+    transcribePanelBounds = transcribeArea.toFloat();
+    auto transcribeInner = transcribeArea.reduced(14, 10);
+    transcribeSectionLabel.setBounds(transcribeInner.removeFromTop(16));
+    transcribeInner.removeFromTop(6);
+    transcribeButton.setBounds(transcribeInner.removeFromTop(28));
+    transcribeInner.removeFromTop(6);
+    transcribeStatusLabel.setBounds(transcribeInner.removeFromTop(30));
+    transcribeDetailLabel.setBounds(transcribeInner.removeFromTop(64));
+    transcribeInner.removeFromTop(6);
+    openExportFolderButton.setBounds(transcribeInner.removeFromTop(28));
 }
 
 juce::String BeatShoreBridgeAudioProcessorEditor::bridgeStatusText(BridgeStatus status)
@@ -136,6 +340,18 @@ juce::String BeatShoreBridgeAudioProcessorEditor::bridgeStatusText(BridgeStatus 
         case BridgeStatus::Error:        return "Error";
     }
     return "Unknown";
+}
+
+juce::Colour BeatShoreBridgeAudioProcessorEditor::bridgeStatusColour(BridgeStatus status)
+{
+    switch (status)
+    {
+        case BridgeStatus::Disconnected: return juce::Colour(kTextFaint);
+        case BridgeStatus::Connecting:   return juce::Colour(kWarn);
+        case BridgeStatus::Connected:    return juce::Colour(kLive);
+        case BridgeStatus::Error:        return juce::Colour(kError);
+    }
+    return juce::Colour(kTextFaint);
 }
 
 namespace
@@ -261,6 +477,7 @@ void BeatShoreBridgeAudioProcessorEditor::timerCallback()
 
     const auto bridgeStatus = processor.getBridgeStatus();
     bridgeStatusLabel.setText(bridgeStatusText(bridgeStatus), juce::dontSendNotification);
+    bridgeStatusLabel.setColour(juce::Label::textColourId, bridgeStatusColour(bridgeStatus));
 
     const bool inFlight = processor.isAnalysisInFlight();
     const bool canTrigger = bridgeStatus == BridgeStatus::Connected && !inFlight;
@@ -291,4 +508,6 @@ void BeatShoreBridgeAudioProcessorEditor::timerCallback()
         applyResult(result);
 
     openExportFolderButton.setEnabled(!lastMidiPath.isEmpty());
+
+    repaint(); // drives the status-dot pulse and in-flight progress bar in paint()
 }

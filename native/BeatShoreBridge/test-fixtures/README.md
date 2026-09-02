@@ -38,3 +38,22 @@ time, duration) is in `reference_test_melody.ground_truth.json`.
    depending on how it segments the held chord); do the pitches match
    (C4/E4/G4/C5 = MIDI 60/64/67/72); are onset times within a reasonable
    tolerance (a few tens of ms) of the ground truth's `startSeconds`.
+
+`reference_drums.wav` -- a synthesized 4.15s stereo drum pattern (kick,
+snare, closed hihat, each with its own percussive synthesis, not a
+pitched tone) with exact ground truth in
+`reference_drums.ground_truth.json`: two bars of 4/4 at 120 BPM, kick on
+beats 1 & 3, snare on beats 2 & 4, hihat on every 8th note (24 hits
+total). Uses General MIDI drum note numbers (kick=36, snare=38, closed
+hihat=42) -- the same numbers BeatShore's own `transcribeDrums` output
+used on a real song during acceptance testing, so the comparison is
+direct: same steps as above but click "Transcribe Drums", then check the
+exported MIDI's note numbers and onset times against the ground truth's
+`gmNote`/`timeSeconds`.
+
+`parse_midi.py` -- a small dependency-free Standard MIDI File reader used
+to check any of BeatShore's exported `.mid` files against a ground truth
+(or just to inspect one) without eyeballing a raw byte dump. Usage:
+`python parse_midi.py path/to/file.mid [more files...]` -- prints each
+track's note count, pitch range, and every note's onset time/duration/
+pitch/velocity.

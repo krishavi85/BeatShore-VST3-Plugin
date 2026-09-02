@@ -1,0 +1,152 @@
+{
+  "sampleRate": 48000,
+  "totalDurationSeconds": 4.15,
+  "tempoBpm": 120,
+  "description": "Two bars of 4/4 at 120 BPM: kick on beats 1 & 3, snare on beats 2 & 4, closed hihat on every 8th note. GM drum note numbers (kick=36, snare=38, closed hihat=42) match what BeatShore's own transcribeDrums output used on a real song.",
+  "hits": [
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 0.0,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "kick",
+      "gmNote": 36,
+      "timeSeconds": 0.0,
+      "velocityHint": 0.9
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 0.25,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 0.5,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "snare",
+      "gmNote": 38,
+      "timeSeconds": 0.5,
+      "velocityHint": 0.85
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 0.75,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 1.0,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "kick",
+      "gmNote": 36,
+      "timeSeconds": 1.0,
+      "velocityHint": 0.9
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 1.25,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 1.5,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "snare",
+      "gmNote": 38,
+      "timeSeconds": 1.5,
+      "velocityHint": 0.85
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 1.75,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 2.0,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "kick",
+      "gmNote": 36,
+      "timeSeconds": 2.0,
+      "velocityHint": 0.9
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 2.25,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 2.5,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "snare",
+      "gmNote": 38,
+      "timeSeconds": 2.5,
+      "velocityHint": 0.85
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 2.75,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 3.0,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "kick",
+      "gmNote": 36,
+      "timeSeconds": 3.0,
+      "velocityHint": 0.9
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 3.25,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 3.5,
+      "velocityHint": 0.55
+    },
+    {
+      "type": "snare",
+      "gmNote": 38,
+      "timeSeconds": 3.5,
+      "velocityHint": 0.85
+    },
+    {
+      "type": "hihat",
+      "gmNote": 42,
+      "timeSeconds": 3.75,
+      "velocityHint": 0.55
+    }
+  ]
+}

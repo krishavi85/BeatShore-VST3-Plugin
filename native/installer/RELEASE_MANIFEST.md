@@ -1,5 +1,79 @@
 # BeatShore release manifest
 
+**Regenerated 2026-09-02, targeting `v0.2.0-rc9`.** The rc8 build below
+(commit `a462104`) predates a real feature wave: the futuristic sidebar
+reorg, Key/Chords/Loudness/Drums/Bass/Lead triggers, Humanize, the
+live Mix chain (EQ/Compressor/Limiter), EBU R128 Master metering, the
+`getStateInformation()`/`setStateInformation()` persistence fix, and --
+the largest addition -- MT3 transcription (via the vetted `mt3-infer`/
+MR-MT3 PyTorch port, Python-routed through `main.cpp`) with real
+progress, cancellation, and MIDI preview through the plugin's own MIDI
+output. None of that was ever built into an installer before now. **Do
+not distribute the rc8-era `BeatShoreSetup-0.2.0.exe`
+(`0994890df1a74a...`) believing it contains any of the above -- it
+doesn't.**
+
+The hashes in the table below are from a fresh, from-scratch rebuild at
+commit `3064902` (full: `3064902e7b3d627829013693e6ab3ef3579aede7`),
+via `build-release.ps1 -CleanEngine` (Inno Setup 6.7.3, installed fresh
+for this build after chocolatey failed on a local permissions issue --
+installed directly from the official GitHub release instead). Verified
+end to end on the actual freshly-built artifacts, not assumed from a
+prior pass: Steinberg Validator against the rebuilt `BeatShore
+Bridge.vst3` (0 tests failed), staged self-test (real Basic Pitch
+inference against the staged tree) PASS, full regression suite
+(`tempo`, `transcribePolyphonic`, `MultiSessionTest` -- including its
+queued-cancel and running-cancel-then-recover scenarios) ALL PASSED,
+Inno Setup compile clean (0 warnings, 90.9s). Every hash below was
+independently recomputed with `sha256sum` against the actual staged/
+compiled files, not just copied from `release-report.json`, and the two
+match exactly.
+
+**What this build does NOT include**: the Python/PyTorch runtime that
+`encodeDecodeDac`/`encodeDecodeEncodec`/`transcribeMt3` need to actually
+run (`ml_env`, 1.4GB, plus the 176MB MR-MT3 checkpoint cache) is not
+staged or packaged by this installer at all -- `build-release.ps1` has
+no knowledge of `python_engine/` yet. `defaultPythonExe()`/
+`pythonEngineScriptPath()` in `main.cpp` already degrade gracefully
+without it (each Python-routed worker starts "in a degraded state" and
+fails clearly per-request rather than crashing the desktop), so this
+build is honestly a **Core installer only**: real VST3 with real MT3 UI
+wired in, real desktop broker, Basic Pitch/DSP transcription fully
+working -- but MT3/DAC/EnCodec will not actually run on a machine that
+installs only this. The "MT3 Model Pack" (bundled offline Python +
+mt3-infer + licensed MR-MT3 weights, shipped as a separate, optional
+component) is real, scoped, unbuilt work -- see STATUS.md's most recent
+section for the current state of that gap.
+
+**Superseded, do not use for anything past this point**: every hash in
+the `fad817c`/`20260829.1` section immediately below remains historically
+accurate for what it describes (that section's own superseded notices
+already cover the `bc62426` era before it), but none of those artifacts
+contain the feature wave above -- treat this notice as applying
+transitively to all of it.
+
+## Current build (commit `3064902`, Core installer only, unsigned)
+
+| File | SHA-256 | Size |
+|---|---|---|
+| `BeatShoreDesktop.exe` | `a54991eddee43f79f9183e82a1355ff5e5022f52a6135b08fe7bdee0c72d1db9` | 364,032 bytes |
+| `BeatShore Bridge.vst3` | `ea42cd31b9b3c442194b459118400e4a0c3df9352404932febe50456dbda299c` | 4,823,040 bytes |
+| `BeatShoreSetup-0.2.0.exe` (`ProductVersion 0.2.0.5`) | `e7425443d0e807ba0014c240c5b6d8a5fb0ec96250a6cbc02003699a079b5f7b` | 99,069,469 bytes |
+| Staging-manifest hash (SHA-256 over the sorted per-file hash listing of the entire staged tree -- see `staging-file-hashes.txt`) | `371b9cb243060e6e9a10cbd648c512c02ed0d03024efd814687b562878dd249f` | staged file count: 8,481 |
+
+`BeatShore Bridge.vst3`'s hash here is byte-identical to the copy
+already deployed and hash-verified to
+`C:\Users\krish\AppData\Local\Programs\Common\VST3\BeatShore Bridge.vst3`
+earlier this same session (see STATUS.md's most recent section) -- this
+manifest's build and that live deployment are the same binary, not two
+separately-built copies that happen to agree.
+
+Not code-signed (no certificate available in this environment --
+`release.yml`'s signing job no-ops cleanly without
+`SIGNING_CERT_BASE64`/`SIGNING_CERT_PASSWORD` secrets).
+
+---
+
 **Regenerated again 2026-08-29.** This table had gone genuinely stale:
 it still described commit `bc62426` (2026-08-26) while `main` had moved
 to `817b4bf` (the fresh-checkout CI fix, confirmed passing on a real

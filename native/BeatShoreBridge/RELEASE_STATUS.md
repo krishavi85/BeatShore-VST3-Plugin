@@ -4,7 +4,7 @@ This is the short, current-state-only summary. For the full engineering
 narrative — what was built, what broke, how each fix was found and
 verified — see `STATUS.md` in this same directory. That file is a
 chronological log, not a status report; this one is the status report.
-Last updated 2026-08-25.
+Last updated 2026-09-02.
 
 ## Current verified capabilities
 
@@ -185,20 +185,32 @@ report) in `RELEASE_MANIFEST.md`:
 | Field | Value |
 |---|---|
 | Version | 0.2.0 |
-| Build ID | 20260829.1 (ProductVersion 0.2.0.5) |
-| Source commit | `fad817c` (the orphaned-temp-file cleanup fix on `main`, after `v0.2.0-rc7`/`817b4bf`) |
+| Build ID | rc9 target, commit `3064902` |
+| Source commit | `3064902` (MT3 plugin UI: progress/cancel/MIDI preview, plus the settled DAC/EnCodec scope decision — see STATUS.md's most recent section) |
 | Installer filename | `BeatShoreSetup-0.2.0.exe` |
-| Installer SHA-256 | `0994890df1a74a1aea45f694de5521050506a1f03942ab0b99297bd40927ac6c` |
-| Installer size | 98,844,794 bytes (~94.3MB) |
-| `BeatShoreDesktop.exe` SHA-256 | `85bc818790ac8a7ec7ce55db67c703cace040af3cf6c560419cce279dddf6357` |
-| `BeatShore Bridge.vst3` SHA-256 | `28ca81e6efc1804044cd9d5c1572768c56052d3488f6f1098c5cae665ae153f7` (unchanged — no VST3 source changes) |
+| Installer SHA-256 | `e7425443d0e807ba0014c240c5b6d8a5fb0ec96250a6cbc02003699a079b5f7b` |
+| Installer size | 99,069,469 bytes (~94.5MB) |
+| `BeatShoreDesktop.exe` SHA-256 | `a54991eddee43f79f9183e82a1355ff5e5022f52a6135b08fe7bdee0c72d1db9` |
+| `BeatShore Bridge.vst3` SHA-256 | `ea42cd31b9b3c442194b459118400e4a0c3df9352404932febe50456dbda299c` |
 | Code-signed | No |
 
-**Do not distribute any installer with the previous table's hash
-(`5b260b55ed8e...`)** — it was built from commit `bc62426`, three real
-commits behind current `main`. See `RELEASE_MANIFEST.md`'s 2026-08-29
-notice for the full account of what changed and why the old hash is
-stale, not just superseded.
+**This is a Core installer only — it does NOT contain a working MT3/DAC/
+EnCodec runtime.** `build-release.ps1` has no knowledge of
+`python_engine/` yet: the ~1.4GB `ml_env` venv and the 176MB MR-MT3
+checkpoint cache aren't staged. The VST3's MT3 UI (button, progress,
+cancel, MIDI preview) is real and will run on an install of this
+installer — but the desktop broker's MT3/DAC/EnCodec workers will start
+"in a degraded state" and every request to them will fail with a clear
+error, since there's no Python runtime alongside them. A separate "MT3
+Model Pack" component is real, scoped, unbuilt work — see
+`RELEASE_MANIFEST.md`'s current top section and STATUS.md's most recent
+section.
+
+**Do not distribute any installer with a previous table's hash** — see
+`RELEASE_MANIFEST.md` for the full chain of what each prior hash was
+built from and why it's superseded (currently: `rc8`'s
+`0994890df1a74a...`, and everything before it back to `bc62426`'s
+`5b260b55ed8e...`).
 
 **Do not treat this table as long-lived** — regenerate it (and
 `RELEASE_MANIFEST.md`) via `build-release.ps1` for every real build; the
@@ -214,12 +226,12 @@ tracked in this table.
 
 | DAW | Status |
 |---|---|
-| Steinberg Validator | 47/47 |
-| REAPER | Hosted IPC verified live for both Analyze Tempo and polyphonic transcription (2026-08-29). Full lifecycle (save/reload, reconnect, multi-instance, playback under load) verified 2026-08-29 — see `REAPER_TEST_CHECKLIST.md` Part B. MIDI-learn confirmed not currently possible (plain JUCE buttons, not host-automatable) |
-| Cubase | Untested |
-| Ableton Live | Untested |
-| FL Studio | Untested |
-| Studio One | Untested |
+| Steinberg Validator | 47/47, re-confirmed 2026-09-02 against the rc9 build |
+| REAPER | Hosted IPC verified live for both Analyze Tempo and polyphonic transcription (2026-08-29). Full lifecycle (save/reload, reconnect, multi-instance, playback under load) verified 2026-08-29 — see `REAPER_TEST_CHECKLIST.md` Part B. MIDI-learn confirmed not currently possible (plain JUCE buttons, not host-automatable). **Not yet re-verified against everything added since 2026-08-29** (sidebar reorg, Key/Chords/Loudness/Drums/Bass/Lead, Humanize, Mix, Master, MT3, Cancel, MIDI preview) — a precise script for that exists (`REAPER_TEST_CHECKLIST.md` Part C) but hasn't been run by a human yet |
+| Cubase | Untested — no Steinberg install found on this development machine (checked 2026-09-02) |
+| Ableton Live | Untested — no Ableton install found on this development machine (checked 2026-09-02) |
+| FL Studio | Untested — no Image-Line/FL Studio application found on this development machine (checked 2026-09-02); only an empty `Shared` folder |
+| Studio One | Untested — PreSonus license files present on this machine, but the Studio One application itself was not confirmed installed (checked 2026-09-02, not investigated further) |
 
 ## Known issues
 
@@ -255,6 +267,15 @@ tracked in this table.
    STATUS.md's "Fourteenth" section for the full writeup.
 8. ~~Temp files from a session killed mid-request aren't cleaned up on
    the next startup.~~ Fixed 2026-08-29 — see "Current limitations".
+9. **MT3/DAC/EnCodec have no installer packaging.** The desktop broker's
+   Python-routed workers (real, working, verified end-to-end against a
+   dev-machine venv — see STATUS.md's Twenty-fifth/Twenty-sixth
+   sections) need a ~1.4GB PyTorch venv plus a 176MB model checkpoint
+   that `build-release.ps1` doesn't know to stage. An installed build
+   today has a fully working MT3 UI (button, real progress, cancel, MIDI
+   preview) that will reliably fail every request with a clear error,
+   since nothing behind it actually runs. The largest concrete gap
+   before a public release that ships MT3 as advertised.
 
 ## Deferred decisions
 

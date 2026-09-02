@@ -3559,6 +3559,95 @@ conformance sweep with the new code paths present; it doesn't prove "the
 Cancel button visibly does the right thing when clicked in REAPER" the
 way only a human REAPER session can.
 
+### Twenty-seventh: a release-engineering pass -- rc9 built and hash-verified, the REAPER acceptance test written as a real script, and the MT3 packaging gap sized for real
+
+The user's directive this round had several parts, some genuinely
+impossible from this environment and said so up front rather than
+faked: run the full REAPER acceptance test (this environment cannot
+drive a native GUI or generate real audio -- true for every prior
+REAPER-testing entry in this document too), rebuild the installer as
+`v0.2.0-rc9`, solve MT3 packaging, do a genuinely clean Windows install
+(no second machine available), and complete remaining release
+requirements (code signing, EULA legal review, other-DAW testing,
+placeholder URLs -- each needs a certificate, a lawyer, other DAW
+installs, or real business URLs this environment doesn't have).
+
+**What was actually achievable, done for real:**
+
+- **Automated regression pass, as the substitute for what a human REAPER
+  session would catch at the protocol level.** A from-scratch CMake
+  configure + full rebuild + Steinberg Validator + staged self-test +
+  the complete `BridgeClientTest`/`MultiSessionTest` suite (including
+  its queued-cancel and running-cancel-then-recover scenarios) all
+  passed against the current tree.
+- **`REAPER_TEST_CHECKLIST.md` Part C** (new): a precise, 15-section,
+  step-by-step script covering every feature added since the last human
+  REAPER pass (2026-08-29) -- sidebar reorg, Key/Chords/Loudness/Drums/
+  Bass/Lead, Humanize, Mix, Master, MT3, Cancel, MIDI preview -- named
+  against the real current button text in `PluginEditor.cpp`, not
+  written generically. Flags C11 (offline render with Mix) and C13
+  (save/reload with *non-default* Mix/Humanize values) as the two steps
+  that actually re-verify the Twenty-second section's
+  `getStateInformation()` fix under real new state; the 2026-08-29 Part
+  B pass predates Mix/Humanize/Master entirely and doesn't cover this.
+  Not run -- this document is the deliverable, not a substitute for a
+  human actually running it.
+- **`v0.2.0-rc9` built and hash-verified.** Inno Setup wasn't installed
+  in this environment; chocolatey's install failed on a local lock/
+  permissions issue (non-admin sandbox), so 6.7.3 was installed
+  directly, per-user, from the official GitHub release instead --
+  matching the exact version this project has used throughout.
+  `build-release.ps1 -CleanEngine` then ran the complete pipeline
+  (rebuild both binaries from source, rebuild `node_modules` from
+  scratch, restage everything unconditionally, Validator, staged
+  self-test, full regression suite, Inno Setup compile) against commit
+  `3064902` -- the first installer build to ever contain the sidebar
+  reorg, Mix, Master, Humanize, the state-persistence fix, or MT3.
+  Every hash in `RELEASE_MANIFEST.md`'s new top section was
+  independently recomputed with `sha256sum` against the actual built
+  files, not copied from `release-report.json` and trusted. The rebuilt
+  `BeatShore Bridge.vst3` came back byte-identical to the copy already
+  deployed to REAPER's real plugin folder earlier this same session --
+  confirms this manifest describes the same binary, not a second,
+  separately-built one that happens to agree.
+- **The MT3 packaging gap, sized for real rather than estimated.**
+  `ml_env` (torch + transformers + mt3-infer + deps) is 1.4GB; the
+  MR-MT3 checkpoint cache is 176MB -- an MT3 Model Pack is realistically
+  ~1.6GB. `build-release.ps1` has no knowledge of `python_engine/` at
+  all today, so `rc9` is honestly a **Core installer only**: the VST3's
+  MT3 UI (button, real progress, cancel, MIDI preview -- see the
+  Twenty-sixth section) is genuinely present and will run, but the
+  desktop's MT3/DAC/EnCodec workers will start "in a degraded state" on
+  an installed machine and fail every request with a clear error, since
+  nothing behind them actually runs. `main.cpp`'s `defaultPythonExe()`/
+  `pythonEngineScriptPath()` already expect and gracefully degrade
+  without an installed-layout Python at `<exe>\python\` -- that part of
+  the architecture needed no new work. What's still unbuilt: a
+  relocatable Python distribution (the dev venv is not one), an
+  installer component to carry it, and a self-test that runs real MT3
+  inference from installed-only files. Also found, not yet acted on:
+  `ml_env` carries `numba`+`llvmlite` (147MB), `matplotlib` (33MB),
+  `sklearn` (45MB), and `jedi` (25MB) -- none imported directly by any
+  of the three engine scripts, and a plausible ~250MB trim before
+  packaging, the same category of fix as the earlier tfjs-node trim,
+  but not yet confirmed safe to remove.
+- **Real, checked findings on cross-DAW availability** (rather than
+  leaving the existing "Untested" rows unexplained): no Cubase, Ableton
+  Live, or FL Studio application found on this development machine
+  (their install directories are absent or empty); PreSonus Studio One
+  has license files present but the application itself wasn't confirmed
+  installed. `RELEASE_STATUS.md`'s DAW table now says this explicitly
+  instead of a bare "Untested".
+
+**Genuinely not done, and not fakeable from here**: the REAPER
+acceptance test itself (script written, not run by a human); a clean
+second-machine/VM install; code signing (no certificate); JUCE/EULA
+legal review (no lawyer); testing on a DAW this machine doesn't have
+installed; replacing the installer's placeholder `MyAppURL`
+(`https://example.invalid/beatshore`) with real product/support/privacy
+URLs. Stem separation ("Separate") was explicitly deferred by the user
+until after all of the above and wasn't started.
+
 ### First round (for reference)
 
 - **No Inno Setup installed in this environment**, so the script has never

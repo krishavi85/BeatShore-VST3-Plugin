@@ -191,6 +191,29 @@ Export**.
    should produce a plausible, non-empty transcription of the same real
    input.
 
+### C4a — Core-only install: the "Model Pack not installed" message
+
+This step is ONLY meaningful on a real clean-machine install where the
+optional "MT3 Model Pack" component was deliberately left unchecked in
+the installer wizard -- not testable on this dev machine, which always
+has the dev-tree checkpoint present. Fold into the clean-machine test
+(item 2 of the overall next-steps list) rather than running standalone
+against a dev build.
+
+1. [ ] With "MT3 Model Pack" unchecked at install time, click
+   **"Transcribe (MT3 -- polyphonic, neural...)"**.
+2. [ ] Confirm the status label shows a clear, specific,
+   actionable message -- "The MT3 Model Pack is not installed. Re-run
+   the BeatShore installer and select the optional \"MT3 Model Pack\"
+   component to enable MT3 transcription." -- not a generic "engine
+   failed to start", a hang, or a crash. (See `main.cpp`'s
+   `mt3ModelPackInstalled()`/`MT3_MODEL_PACK_MISSING` -- this is checked
+   BEFORE the desktop even attempts to spawn `python.exe`, so it should
+   appear immediately, not after any real wait.)
+3. [ ] Confirm every OTHER transcription kind (basic-pitch, drums, bass,
+   lead, key/chords/loudness) still works normally -- a missing MT3
+   Model Pack should never affect anything else.
+
 ### C5 — Cancel: mid-analysis, and the worker actually recovers
 
 1. [ ] Trigger **"Transcribe (MT3 -- polyphonic, neural...)"** again.

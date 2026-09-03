@@ -1,5 +1,73 @@
 # BeatShore release manifest
 
+**Regenerated again 2026-09-02** at commit `15d5751`
+(full: `15d5751dd88dcc0ae106ee3cdb205d0833612f9c`) -- the MT3 Model Pack is
+now real. The section immediately below this one (commit `3064902`) was
+honestly a Core-only build; this one includes the full, relocatable MT3
+runtime (embeddable Python 3.14.4 + the trimmed, DAC/EnCodec-free
+dependencies + the licensed MR-MT3 checkpoint) as a real, optional Inno
+Setup component. **Do not distribute the `3064902`-era
+`BeatShoreSetup-0.2.0.exe` (`e7425443d0e807ba0...`) believing it can run
+MT3 -- it can't; every MT3 request on that build fails with a clear
+"Model Pack not installed" error.**
+
+Compiled TWICE for this exact commit before this hash was recorded, not
+once -- the first two compiles used a stale staged `BeatShoreDesktop.exe`
+predating this commit's `main.cpp` changes (caught by comparing the
+staged copy's hash against the freshly-built one, not assumed correct).
+The hashes below are from the third, corrected compile, run directly
+against a restaged, hash-verified-fresh `BeatShoreDesktop.exe`.
+
+Verified for real, end to end, against the actual staged tree these
+hashes describe -- not the build script's intent:
+- `--self-test` run directly against `stage\`: `ALL PASSED`, including a
+  real MT3 check (`success: true`, `noteCount: 2`, from the staged
+  `python\`/`models\`, not the dev tree).
+- A separate, isolated offline test: the built runtime copied to a
+  location with no relationship to this repository, every
+  PATH-resolvable `python.exe`/`python3.exe` stripped (including the
+  WindowsApps execution alias), `HTTP_PROXY`/`HTTPS_PROXY` pointed at an
+  unreachable address so any network attempt fails loudly instead of
+  silently succeeding -- real `READY`, real `TRANSCRIBE_RESULT`
+  (`success: true`, `noteCount: 2`), real `.mid` file written.
+- A genuine cancel-mid-flight, confirmed via the desktop's own
+  full-content diagnostic log (`BEATSHORE_DIAGNOSTIC_LOG=1`): a real
+  `CANCELLED` terminal message for a request that was genuinely running
+  (a real `ANALYSIS_PROGRESS` had already arrived first).
+- Recovery after that cancel: a fresh `transcribeMt3` request via
+  `PythonRoutingE2ETest` immediately succeeded (`MIDI_RESULT`,
+  `noteCount: 2`) -- the hard-killed-and-restarted `python.exe`
+  genuinely came back healthy.
+
+See STATUS.md's most recent section for the full account, including a
+real, previously-invisible `PYTHONNOUSERSITE` bug found and fixed along
+the way (this machine's own unrelated per-user Python packages were
+leaking into the "relocatable" runtime's `sys.path` until that fix).
+
+## Current build (commit `15d5751`, Core + MT3 Model Pack, unsigned)
+
+| File | SHA-256 | Size |
+|---|---|---|
+| `BeatShoreDesktop.exe` | `13fb3afff29ef38baecde28c1c5109c69cf4360f3402946216404b616729e9b4` | (see `git show 15d5751 --stat` or rebuild -- not separately recorded by byte count here; hash is authoritative) |
+| `BeatShore Bridge.vst3` | `ea42cd31b9b3c442194b459118400e4a0c3df9352404932febe50456dbda299c` | 4,823,040 bytes (unchanged from the `3064902` build -- no VST3 source changes this commit) |
+| MT3 Model Pack `python\python.exe` (embeddable Python 3.14.4, entry point for the whole bundled runtime) | `7ca24f26d6e3f463419ee4f537ddd3acd312c38fe45e678cce08572f26a8bd1a` | `python\` directory total: ~1.3GB |
+| MT3 Model Pack `models\mt3\mr_mt3\mt3.pth` (MR-MT3 checkpoint, MIT-licensed) | `b8a3807ed265059abd25ad7f68142c06c35e8f6144dcaa45bd55946a3745398f` | 176MB -- matches the registry's own declared hash in `mt3_infer/config/checkpoints.yaml`, verified before AND after staging |
+| `BeatShoreSetup-0.2.0.exe` (Full install type, `core` + `mt3modelpack` components) | `22727bd4cc574d99faff2983cfff3930328f5a22c0e32db76ab483848344aff8` | 505,888,871 bytes (~482MB) |
+
+Not code-signed (no certificate available in this environment --
+`release.yml`'s signing job no-ops cleanly without
+`SIGNING_CERT_BASE64`/`SIGNING_CERT_PASSWORD` secrets).
+
+A Core-only compile (no Model Pack staged) was also verified to compile
+cleanly at this same commit -- confirms `skipifsourcedoesntexist`
+degrades correctly, matching what every CI run produces today (CI has
+no local Model Pack artifact to stage). That Core-only build's own hash
+wasn't separately recorded since it's not the artifact meant for
+distribution once the Model Pack exists -- rebuild locally if a
+Core-only hash is specifically needed for comparison.
+
+---
+
 **Regenerated 2026-09-02, targeting `v0.2.0-rc9`.** The rc8 build below
 (commit `a462104`) predates a real feature wave: the futuristic sidebar
 reorg, Key/Chords/Loudness/Drums/Bass/Lead triggers, Humanize, the

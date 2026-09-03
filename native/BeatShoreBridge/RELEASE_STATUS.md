@@ -4,7 +4,7 @@ This is the short, current-state-only summary. For the full engineering
 narrative — what was built, what broke, how each fix was found and
 verified — see `STATUS.md` in this same directory. That file is a
 chronological log, not a status report; this one is the status report.
-Last updated 2026-09-02.
+Last updated 2026-09-02 (MT3 Model Pack packaging).
 
 ## Current verified capabilities
 
@@ -185,32 +185,38 @@ report) in `RELEASE_MANIFEST.md`:
 | Field | Value |
 |---|---|
 | Version | 0.2.0 |
-| Build ID | rc9 target, commit `3064902` |
-| Source commit | `3064902` (MT3 plugin UI: progress/cancel/MIDI preview, plus the settled DAC/EnCodec scope decision — see STATUS.md's most recent section) |
-| Installer filename | `BeatShoreSetup-0.2.0.exe` |
-| Installer SHA-256 | `e7425443d0e807ba0014c240c5b6d8a5fb0ec96250a6cbc02003699a079b5f7b` |
-| Installer size | 99,069,469 bytes (~94.5MB) |
-| `BeatShoreDesktop.exe` SHA-256 | `a54991eddee43f79f9183e82a1355ff5e5022f52a6135b08fe7bdee0c72d1db9` |
-| `BeatShore Bridge.vst3` SHA-256 | `ea42cd31b9b3c442194b459118400e4a0c3df9352404932febe50456dbda299c` |
+| Build ID | rc9 target, commit `15d5751` |
+| Source commit | `15d5751` (the MT3 runtime made genuinely relocatable and packaged as a real, optional "MT3 Model Pack" installer component — see STATUS.md's most recent section) |
+| Installer filename | `BeatShoreSetup-0.2.0.exe` (Full install type: `core` + `mt3modelpack`) |
+| Installer SHA-256 | `22727bd4cc574d99faff2983cfff3930328f5a22c0e32db76ab483848344aff8` |
+| Installer size | 505,888,871 bytes (~482MB — includes the ~1.5GB-before-compression MT3 Model Pack) |
+| `BeatShoreDesktop.exe` SHA-256 | `13fb3afff29ef38baecde28c1c5109c69cf4360f3402946216404b616729e9b4` |
+| `BeatShore Bridge.vst3` SHA-256 | `ea42cd31b9b3c442194b459118400e4a0c3df9352404932febe50456dbda299c` (unchanged — no VST3 source changes this commit) |
+| MT3 Model Pack `python\python.exe` SHA-256 | `7ca24f26d6e3f463419ee4f537ddd3acd312c38fe45e678cce08572f26a8bd1a` |
+| MT3 Model Pack checkpoint SHA-256 | `b8a3807ed265059abd25ad7f68142c06c35e8f6144dcaa45bd55946a3745398f` (matches the registry's own declared hash) |
 | Code-signed | No |
 
-**This is a Core installer only — it does NOT contain a working MT3/DAC/
-EnCodec runtime.** `build-release.ps1` has no knowledge of
-`python_engine/` yet: the ~1.4GB `ml_env` venv and the 176MB MR-MT3
-checkpoint cache aren't staged. The VST3's MT3 UI (button, progress,
-cancel, MIDI preview) is real and will run on an install of this
-installer — but the desktop broker's MT3/DAC/EnCodec workers will start
-"in a degraded state" and every request to them will fail with a clear
-error, since there's no Python runtime alongside them. A separate "MT3
-Model Pack" component is real, scoped, unbuilt work — see
-`RELEASE_MANIFEST.md`'s current top section and STATUS.md's most recent
-section.
+**MT3 now genuinely works from this installer** — the Full install type
+includes a real, relocatable Python 3.14.4 runtime (embeddable package +
+the trimmed, DAC/EnCodec-free dependencies) and the licensed MR-MT3
+checkpoint, verified end to end: `--self-test` run directly against the
+compiled installer's staged tree passed a real MT3 transcription; a
+separate isolated test (system Python off PATH, network forced to fail,
+copied to a location unrelated to this repository) produced a real
+transcription, real progress, and a real MIDI file; a genuine
+cancel-mid-flight and recovery were both confirmed against this exact
+build. See STATUS.md's most recent section for the full verification
+account. A Core-only compile (no Model Pack) was also verified to
+compile cleanly at this same commit — that's what every CI run produces
+today, since the ~1.5GB Model Pack source is gitignored and CI has no
+local copy of it.
 
 **Do not distribute any installer with a previous table's hash** — see
 `RELEASE_MANIFEST.md` for the full chain of what each prior hash was
-built from and why it's superseded (currently: `rc8`'s
-`0994890df1a74a...`, and everything before it back to `bc62426`'s
-`5b260b55ed8e...`).
+built from and why it's superseded (most recently: the Core-only
+`3064902` build's `e7425443d0e807ba0...`, which cannot run MT3 at all;
+before that `rc8`'s `0994890df1a74a...`, and everything back to
+`bc62426`'s `5b260b55ed8e...`).
 
 **Do not treat this table as long-lived** — regenerate it (and
 `RELEASE_MANIFEST.md`) via `build-release.ps1` for every real build; the
@@ -267,29 +273,29 @@ tracked in this table.
    STATUS.md's "Fourteenth" section for the full writeup.
 8. ~~Temp files from a session killed mid-request aren't cleaned up on
    the next startup.~~ Fixed 2026-08-29 — see "Current limitations".
-9. **MT3 has no installer packaging yet — but the runtime it needs is
-   now built, trimmed, and functionally proven.** A fresh, minimal,
-   DAC/EnCodec-free venv (1.3GB — `ml_env_mt3_trimmed`) was built from
-   real import tracing (44 distributions genuinely used out of 109) and
-   `mt3-infer`'s own declared dependencies, then proven correct via four
-   separate real tests: direct isolated inference with every
-   PATH-resolvable `python.exe` stripped, an installed-layout-shaped
-   end-to-end run through the real desktop process (MT3 succeeds,
-   DAC/EnCodec cleanly report unavailable rather than crashing), and a
-   genuine cancel-mid-flight-then-recover cycle — see STATUS.md's
-   Twenty-eighth section for the full account, including a real
-   Windows `MAX_PATH`/`WinError 206` finding along the way. What's
-   still missing is purely mechanical: this venv's `pyvenv.cfg` still
-   points at a fixed path on this development machine (`C:\Python314`)
-   that won't exist on a customer's — it needs converting into something
-   genuinely relocatable (most likely the official Windows embeddable
-   Python package with this venv's proven `site-packages` copied onto
-   it) and wiring into `build-release.ps1`/`BeatShoreSetup.iss` as an
-   actual optional "MT3 Model Pack" component. An installed build today
-   still has a fully working MT3 UI (button, real progress, cancel, MIDI
-   preview) that fails every request with a clear error, since nothing
-   behind it ships yet — but what ships behind it once packaging is
-   wired up is now a known, tested quantity, not an open question.
+9. ~~MT3 has no installer packaging.~~ **Resolved.** The MT3 runtime is
+   now a real, relocatable Windows package (embeddable Python 3.14.4 +
+   the trimmed, DAC/EnCodec-free dependencies + the licensed MR-MT3
+   checkpoint), wired into `BeatShoreSetup.iss` as a real, optional "MT3
+   Model Pack" installer component, and verified end to end against the
+   actual compiled installer's staged content: `--self-test` real MT3
+   PASS, a separate isolated offline test (PATH stripped, network forced
+   to fail, copied away from this repository) with real transcription/
+   progress/MIDI export, and a genuine cancel-mid-flight-then-recover
+   cycle, all confirmed against this exact build — see STATUS.md's most
+   recent section for the full account, including a second real
+   relocatability bug found and fixed (`PYTHONNOUSERSITE=1` — this
+   machine's own unrelated per-user Python packages were leaking into
+   the runtime's `sys.path`) and the Windows long-path manifest fix the
+   prior section's `MAX_PATH` finding called for. Selecting only "Core"
+   at install time still installs the MT3 UI button (it's part of the
+   VST3), which now fails with a specific, actionable
+   `MT3_MODEL_PACK_MISSING` error rather than a generic one. Genuinely
+   not verifiable from this environment: the compiled installer's own
+   UAC-elevated install flow itself (no administrator privileges are
+   available here — confirmed via `net session`), and a real REAPER
+   acceptance pass — both still need a human, matching every other
+   "needs a live human/real hardware" item in this document.
 
 ## Deferred decisions
 

@@ -660,6 +660,45 @@ static std::string pythonEngineScriptPath(const char* scriptFileName)
     return installedLayout;
 }
 
+// The directory mt3-infer's own checkpoint resolution treats as the root
+// of its ".mt3_checkpoints/" tree -- passed via the MT3_CHECKPOINT_DIR
+// env var (see api.py's load_model(): a relative registry path like
+// ".mt3_checkpoints/mr_mt3/mt3.pth" has that literal prefix stripped and
+// rejoined onto this directory, so MT3_CHECKPOINT_DIR=<this> resolves to
+// <this>\mr_mt3\mt3.pth -- exactly where the MR-MT3 checkpoint needs to
+// already exist for mt3-infer to skip its own auto-download path
+// entirely; see runMt3Worker()'s own extraEnv, which also sets
+// auto_download=False in mt3_engine.py's transcribe() calls as a second,
+// explicit guarantee this never reaches out to the network). Installed
+// layout mirrors the "MT3 Model Pack" installer component's staged
+// location; dev-tree layout points at the same
+// native/BeatShoreDesktop/python_engine/.mt3_checkpoints/ directory this
+// project's own dev/test checkpoint has always lived in, so no separate
+// copy is needed for local testing.
+static std::string defaultMt3CheckpointDir()
+{
+    std::string installedLayout = exeDirectory() + "\\models\\mt3";
+    if (fileExists(installedLayout + "\\mr_mt3\\mt3.pth")) return installedLayout;
+
+    std::string devTreeLayout = exeDirectory() + "\\..\\python_engine\\.mt3_checkpoints";
+    if (fileExists(devTreeLayout + "\\mr_mt3\\mt3.pth")) return devTreeLayout;
+
+    return installedLayout; // neither exists -- mt3EngineHasRuntime() below is what actually gates whether the worker even tries to start
+}
+
+// True only once BOTH the interpreter and the real checkpoint file exist
+// at the paths the functions above would use -- the two things that
+// together make up a complete "MT3 Model Pack" install. Checked once at
+// startup so a genuinely absent Model Pack (the common case on a Core-
+// only install) can report a clear, specific, actionable message
+// immediately, instead of spending 180s attempting to spawn a python.exe
+// that either doesn't exist or would fail load_model() partway through
+// with a much less clear error.
+static bool mt3ModelPackInstalled()
+{
+    return fileExists(defaultPythonExe()) && fileExists(defaultMt3CheckpointDir() + "\\mr_mt3\\mt3.pth");
+}
+
 // Spawns (or respawns, after a hard-cancel kills the previous process) a
 // Node child and validates its READY line. Shared by main()'s initial
 // startup and NodeWorker's post-cancel respawn so both paths get the exact
@@ -721,9 +760,9 @@ static bool startAndValidateNode(NodeEngine& node, const std::string& nodeExe, c
 // PythonEngine.h merges the child's stderr into the same stream, same as
 // NodeEngine always has, so a startup traceback could otherwise be
 // mistaken for a real READY line).
-static bool startAndValidatePython(PythonEngine& python, const std::string& pythonExe, const std::string& scriptPath, const std::string& logPrefix)
+static bool startAndValidatePython(PythonEngine& python, const std::string& pythonExe, const std::string& scriptPath, const std::string& logPrefix, const std::vector<std::string>& extraEnv = {})
 {
-    if (!python.start(pythonExe, scriptPath))
+    if (!python.start(pythonExe, scriptPath, extraEnv))
     {
         logLine(logPrefix + "FATAL: failed to start python engine (" + scriptPath + ")");
         return false;
@@ -777,7 +816,8 @@ static PythonRequestOutcome runPythonRequest(std::unique_ptr<PythonEngine>& engi
                                               const std::string& scriptPath, const std::shared_ptr<AnalysisJob>& job,
                                               HANDLE workerWakeEvent, const std::string& requestLine, DWORD timeoutMs,
                                               std::string& outResponseLine, const std::string& logPrefix,
-                                              const std::shared_ptr<SessionOutbox>& outbox = nullptr)
+                                              const std::shared_ptr<SessionOutbox>& outbox = nullptr,
+                                              const std::vector<std::string>& extraEnv = {})
 {
     logLine(logPrefix + "-> python: " + redactContent(requestLine));
     if (!engine->writeLine(requestLine)) return PythonRequestOutcome::WriteFailed;
@@ -804,7 +844,7 @@ static PythonRequestOutcome runPythonRequest(std::unique_ptr<PythonEngine>& engi
             logLine(logPrefix + "CANCEL_REQUESTED -- killing and restarting python engine");
             engine->cancelPendingRead();
             engine = std::make_unique<PythonEngine>();
-            if (!startAndValidatePython(*engine, pythonExe, scriptPath, logPrefix))
+            if (!startAndValidatePython(*engine, pythonExe, scriptPath, logPrefix, extraEnv))
                 logLine(logPrefix + "WARNING: python engine failed to restart after cancellation -- subsequent jobs will fail until it recovers.");
             return PythonRequestOutcome::Cancelled;
         }
@@ -1069,9 +1109,38 @@ static void runMt3Worker(JobQueue& jobQueue, SessionRegistry& sessionRegistry, s
                           std::string pythonExe, std::string scriptPath, std::string tempDir)
 {
     const std::string logPrefix = "[desktop mt3 worker] ";
+
+    // MT3_CHECKPOINT_DIR/HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE -- forces
+    // mt3-infer (and anything it uses from transformers/huggingface_hub)
+    // to load the MR-MT3 checkpoint purely from local disk and never
+    // attempt a network call, on top of mt3_engine.py's own explicit
+    // auto_download=False on every transcribe() call. Belt and suspenders
+    // deliberately: mt3-infer's own checkpoint-exists check already skips
+    // its download path when the file is present (see
+    // native/BeatShoreDesktop/python_engine/mt3_engine.py's header
+    // comment for the fuller account), so this is defense against any
+    // OTHER network path (a huggingface_hub version check, etc.) this
+    // session didn't happen to trace, not the primary mechanism.
+    const std::string mt3CheckpointDir = defaultMt3CheckpointDir();
+    const std::vector<std::string> extraEnv = {
+        "MT3_CHECKPOINT_DIR=" + mt3CheckpointDir,
+        "HF_HUB_OFFLINE=1",
+        "TRANSFORMERS_OFFLINE=1"
+    };
+
+    // Checked BEFORE ever attempting to spawn python.exe -- the common
+    // case on a Core-only install (no "MT3 Model Pack" component
+    // selected) is that neither the interpreter nor the checkpoint
+    // exists at all, and spending any time on CreateProcess/a 180s READY
+    // wait against a path that's already known not to exist would only
+    // delay a message this function can already give immediately and
+    // more specifically than a generic "failed to start".
+    const bool modelPackInstalled = mt3ModelPackInstalled();
     auto engine = std::make_unique<PythonEngine>();
-    bool healthy = startAndValidatePython(*engine, pythonExe, scriptPath, logPrefix);
-    if (!healthy)
+    bool healthy = modelPackInstalled && startAndValidatePython(*engine, pythonExe, scriptPath, logPrefix, extraEnv);
+    if (!modelPackInstalled)
+        logLine(logPrefix + "MT3 Model Pack not installed (checked " + pythonExe + " and " + mt3CheckpointDir + "\\mr_mt3\\mt3.pth) -- starting in a degraded state; every job this worker pops will fail immediately with a clear, specific error until the Model Pack is installed.");
+    else if (!healthy)
         logLine(logPrefix + "starting in a degraded state -- every job this worker pops will fail immediately with a clear error until it's available.");
 
     HANDLE workerWakeEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
@@ -1110,6 +1179,13 @@ static void runMt3Worker(JobQueue& jobQueue, SessionRegistry& sessionRegistry, s
             job->assignedWorkerWakeEvent.store(nullptr);
         };
 
+        if (!modelPackInstalled)
+        {
+            fail("MT3_MODEL_PACK_MISSING",
+                 "The MT3 Model Pack is not installed. Re-run the BeatShore installer and select the optional "
+                 "\"MT3 Model Pack\" component to enable MT3 transcription.");
+            continue;
+        }
         if (!healthy) { fail("MT3_UNAVAILABLE", "MT3 engine is not available (failed to start or was lost and could not be restarted)"); continue; }
 
         logLine(logPrefix + "handling ANALYSIS_REQUEST requestId=" + job->requestId + " kind=" + job->kind);
@@ -1123,7 +1199,7 @@ static void runMt3Worker(JobQueue& jobQueue, SessionRegistry& sessionRegistry, s
 
         std::string responseLine;
         const ULONGLONG requestStartTick = GetTickCount64();
-        auto outcome = runPythonRequest(engine, pythonExe, scriptPath, job, workerWakeEvent, stringify(req), 60000, responseLine, logPrefix, outbox);
+        auto outcome = runPythonRequest(engine, pythonExe, scriptPath, job, workerWakeEvent, stringify(req), 60000, responseLine, logPrefix, outbox, extraEnv);
 
         if (outcome == PythonRequestOutcome::Cancelled)
         {
@@ -2335,6 +2411,115 @@ static int runSelfTest(const std::string& nodeExe, const std::string& scriptPath
                    << ": polyphonic transcription (Basic Pitch model load + inference), noteCount=" << polyNoteCount << std::endl;
     }
 
+    // MT3 (real TRANSCRIBE request against the actual staged mt3_engine.py
+    // and Python runtime). Not a failure when the "MT3 Model Pack"
+    // component wasn't selected during install -- that's a legitimate,
+    // supported Core-only configuration (see mt3ModelPackInstalled()'s
+    // own comment) -- so this is reported as SKIP, not FAIL, and doesn't
+    // affect allOk below. When the Model Pack IS present, this is the
+    // actual proof-of-life the "Do not report completion merely because
+    // Python starts" bar requires: a real request, a real response,
+    // success=true, a real note count > 0, all from the staged install,
+    // not the dev tree.
+    bool mt3Ok = true;
+    if (mt3ModelPackInstalled())
+    {
+        mt3Ok = false;
+        const std::string mt3PythonExe = defaultPythonExe();
+        const std::string mt3ScriptPath = pythonEngineScriptPath("mt3_engine.py");
+        const std::string mt3CheckpointDir = defaultMt3CheckpointDir();
+        const std::vector<std::string> mt3ExtraEnv = {
+            "MT3_CHECKPOINT_DIR=" + mt3CheckpointDir,
+            "HF_HUB_OFFLINE=1",
+            "TRANSFORMERS_OFFLINE=1"
+        };
+
+        // A SEPARATE fixture from the shared tempo/poly one above --
+        // real, found-not-guessed reason: a static two-note dyad (both
+        // notes sustained simultaneously for the whole clip, the shared
+        // fixture's own shape) reliably produces noteCount=0 from MR-MT3
+        // even though the model loads and runs correctly -- confirmed by
+        // actually running this exact check against it before writing
+        // this comment. MR-MT3's onset-based decoding needs a real onset
+        // event to register a note the way basic-pitch's frame-salience
+        // CNN doesn't require. This fixture instead plays two notes
+        // SEQUENTIALLY (C4 then E4, each with a real fast attack) --
+        // the same real shape already proven to reliably produce
+        // noteCount=2 across every other MT3 test in this project
+        // (mt3_engine_test.cpp, python_routing_e2e_test.cpp).
+        const std::string mt3FixturePath = tempDir + "\\beatshore_selftest_mt3_fixture.bsmraw";
+        {
+            const uint32_t sr = 44100, ch = 1, frames = sr * 4; // 4s mono @ 44100Hz
+            std::vector<float> mt3Samples(frames);
+            const double half = 2.0;
+            for (uint32_t i = 0; i < frames; ++i)
+            {
+                const double t = double(i) / sr;
+                const double freq = (t < half) ? 261.63 : 329.63;
+                const double localT = (t < half) ? t : (t - half);
+                const double envelope = (std::min)(1.0, localT / 0.02) * (std::min)(1.0, (half - localT) / 0.3);
+                mt3Samples[i] = float(0.5 * envelope * std::sin(2.0 * 3.14159265358979 * freq * t));
+            }
+            std::ofstream mt3Out(mt3FixturePath, std::ios::binary);
+            mt3Out.write("BSM1", 4);
+            mt3Out.write(reinterpret_cast<const char*>(&sr), 4);
+            mt3Out.write(reinterpret_cast<const char*>(&ch), 4);
+            mt3Out.write(reinterpret_cast<const char*>(&frames), 4);
+            mt3Out.write(reinterpret_cast<const char*>(mt3Samples.data()), std::streamsize(mt3Samples.size() * sizeof(float)));
+        }
+
+        PythonEngine mt3Engine;
+        if (!startAndValidatePython(mt3Engine, mt3PythonExe, mt3ScriptPath, "[self-test] ", mt3ExtraEnv))
+        {
+            std::cout << "[self-test] FAIL: MT3 engine failed to start or reach a valid READY" << std::endl;
+        }
+        else
+        {
+            const std::string mt3MidiOutPath = tempDir + "\\beatshore_selftest_mt3_output.mid";
+            Value mt3Req = Value::object();
+            mt3Req.set("type", "TRANSCRIBE");
+            mt3Req.set("requestId", "selftest-mt3");
+            mt3Req.set("inputAudioPath", mt3FixturePath); // mt3_engine.py reads BSM1 directly -- see mt3FixturePath's own comment for why this isn't the shared tempo/poly fixture
+            mt3Req.set("outputMidiPath", mt3MidiOutPath);
+
+            int mt3NoteCount = -1;
+            if (mt3Engine.writeLine(stringify(mt3Req)))
+            {
+                const ULONGLONG mt3Deadline = GetTickCount64() + 60000;
+                for (;;)
+                {
+                    const ULONGLONG now = GetTickCount64();
+                    if (now >= mt3Deadline) break;
+                    std::string line;
+                    if (mt3Engine.readLine(DWORD(mt3Deadline - now), line) != OverlappedPipeIO::ReadResult::Ok) break;
+                    Value msg;
+                    try { msg = parse(line); } catch (const std::exception&) { continue; }
+                    const std::string type = msg.has("type") ? msg["type"].asString() : "";
+                    if (type == "ANALYSIS_PROGRESS") continue; // real, honest checkpoints -- see mt3_engine.py -- keep waiting for the terminal response
+                    if (type == "TRANSCRIBE_RESULT")
+                    {
+                        if (jsonGetBool(msg, "success"))
+                            mt3NoteCount = msg.has("noteCount") ? int(msg["noteCount"].asNumber()) : -1;
+                        break;
+                    }
+                }
+            }
+            DeleteFileA(mt3MidiOutPath.c_str());
+            mt3Ok = mt3NoteCount > 0;
+            std::cout << "[self-test] " << (mt3Ok ? "PASS" : "FAIL")
+                       << ": MT3 transcription (MR-MT3 checkpoint load + inference, staged files only, offline), noteCount=" << mt3NoteCount << std::endl;
+        }
+
+        Value shutdown = Value::object();
+        shutdown.set("type", "SHUTDOWN");
+        mt3Engine.writeLine(stringify(shutdown));
+        DeleteFileA(mt3FixturePath.c_str());
+    }
+    else
+    {
+        std::cout << "[self-test] SKIP: MT3 Model Pack not installed (Core-only install) -- transcribeMt3 not tested" << std::endl;
+    }
+
     DeleteFileA(fixturePath.c_str());
 
     // Matches midi-export.js's own EXPORT_DIR exactly -- a real write
@@ -2361,7 +2546,7 @@ static int runSelfTest(const std::string& nodeExe, const std::string& scriptPath
     }
     std::cout << "[self-test] " << (exportDirOk ? "PASS" : "FAIL") << ": MIDI export directory is writable" << std::endl;
 
-    const bool allOk = tempoOk && polyOk && exportDirOk;
+    const bool allOk = tempoOk && polyOk && exportDirOk && mt3Ok;
     std::cout << "[self-test] " << (allOk ? "ALL PASSED" : "FAILED") << std::endl;
     return allOk ? 0 : 1;
 }

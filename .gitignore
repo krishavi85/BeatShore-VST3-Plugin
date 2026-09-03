@@ -28,6 +28,19 @@ native/*/*/build/
 native/BeatShoreDesktop/python_engine/*_env/
 native/BeatShoreDesktop/python_engine/ml_env_mt3_trimmed/
 
+# The relocatable "MT3 Model Pack" build artifact (embeddable Python +
+# the trimmed venv's site-packages copied onto it, ~1.3GB, plus the
+# 176MB MR-MT3 checkpoint) -- build-release.ps1 stages this into the
+# installer's optional MT3 Model Pack component WHEN it exists locally,
+# and skips that component gracefully (with a clear log line) when it
+# doesn't, e.g. on a fresh CI checkout. Never committed: it's a build
+# artifact assembled from a downloaded embeddable Python package plus
+# the already-gitignored ml_env_mt3_trimmed venv, not source -- see
+# STATUS.md's most recent section for exactly how it's built and
+# native/installer/scripts/build_mt3_model_pack.ps1 for the reproducible
+# script that builds it.
+native/BeatShoreDesktop/python_engine/mt3_model_pack/
+
 # Downloaded pretrained model weight caches (DAC/EnCodec cache under the
 # venvs' own torch hub dir, already covered above; MR-MT3's checkpoint
 # cache -- mt3-infer's own download location -- is a sibling directory,

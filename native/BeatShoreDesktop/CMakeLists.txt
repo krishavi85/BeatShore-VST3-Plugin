@@ -18,6 +18,19 @@ target_compile_features(BeatShoreDesktop PRIVATE cxx_std_17)
 
 if (MSVC)
     target_compile_options(BeatShoreDesktop PRIVATE /W4)
+
+    # Windows long-path awareness -- a real, previously-unknown bug this
+    # session found and root-caused (see STATUS.md's most recent
+    # section): torch's own DLL loader hit a genuine MAX_PATH (260-char)
+    # limit loading torch\lib\c10.dll from an unusually deep install
+    # path. Merged into the linker's own auto-generated manifest rather
+    # than replacing it (which would silently drop the UAC/common-
+    # controls settings CMake already provides) -- see
+    # Source/BeatShoreDesktop.manifest's own comment for the fragment
+    # and why it's needed. Cheap defense-in-depth: a no-op on a Windows
+    # version or policy state where it doesn't apply, not a risk.
+    target_link_options(BeatShoreDesktop PRIVATE
+        "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/Source/BeatShoreDesktop.manifest")
 endif()
 
 # Shell32 for Shell_NotifyIconA (the system tray icon), User32 for the

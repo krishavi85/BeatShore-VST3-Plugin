@@ -3771,6 +3771,197 @@ well-understood work -- not started this session, to avoid rushing the
 one part of this that's genuinely still open after the parts above were
 verified as solid.
 
+### Twenty-ninth: the MT3 runtime made genuinely relocatable, packaged as a real installer component, and proven offline from a copy with no outside dependencies
+
+Direct continuation of the Twenty-eighth section's one open item -- per
+the user's explicit, itemized instructions: convert the proven-correct
+but not-yet-relocatable trimmed venv into something that survives being
+copied onto a machine that has never seen this project, with no
+dependency on `C:\Python314`, system Python, PATH, this repository, user
+caches, or the internet.
+
+**A second real, previously-invisible relocatability bug found and
+fixed, beyond the one from the Twenty-eighth section.** The first real
+test of the embeddable-Python conversion (official Windows embeddable
+package + the trimmed venv's `site-packages` copied onto it, `._pth`
+edited to enable site-packages) printed a genuinely alarming `sys.path`:
+alongside the bundled entries, it also contained
+`%APPDATA%\Python\Python314\site-packages` and, from `*.pth` files
+inside it, two absolute paths into a completely unrelated project on
+this dev machine (`Singh's Coding Dashboard\codesovereign-*\src`).
+Root cause: `import site` (needed so the bundled `site-packages`' own
+`*.pth` files, e.g. `distutils-precedence.pth`, still get processed)
+also processes this machine's own PER-USER site-packages by default --
+exactly the kind of "depends on user caches" contamination a
+redistributed runtime must never have. Fixed with `PYTHONNOUSERSITE=1`,
+added to `PythonEngine::start()`'s own base env vars (alongside
+`PYTHONUTF8=1`) so every current and future Python-routed engine gets
+it automatically, not just MT3 -- verified directly: with it set,
+`sys.path` contains only the bundled `python314.zip`/base/
+`site-packages` entries, nothing from the user profile.
+
+**Real, forced offline checkpoint loading -- not just "it happens to
+work if the network is up".** Read `mt3-infer`'s own `download.py`/
+`api.py` source directly rather than assuming: `download_checkpoint()`
+already skips its own download path entirely whenever the checkpoint
+file already exists at the resolved path, and that path is resolvable
+via the `MT3_CHECKPOINT_DIR` env var (stripping the registry's own
+`.mt3_checkpoints/` prefix and rejoining it onto that directory) rather
+than only `Path.cwd()`. `main.cpp` gained `defaultMt3CheckpointDir()`
+(installed layout: `<exe>\models\mt3`; dev-tree fallback: the same
+`.mt3_checkpoints\` this project's own testing has always used, so nothing
+about local dev testing needed to change) and `runMt3Worker()` now sets
+`MT3_CHECKPOINT_DIR` plus `HF_HUB_OFFLINE=1`/`TRANSFORMERS_OFFLINE=1` as
+extra env vars threaded through `PythonEngine::start()`/
+`startAndValidatePython()`/`runPythonRequest()`'s post-cancel restart
+path (all three needed real signature changes to carry an `extraEnv`
+parameter through). `mt3_engine.py`'s own `transcribe()` calls now also
+pass `auto_download=False` explicitly, the same "never remove this
+argument" guarantee already established for `model="mr_mt3"` -- belt and
+suspenders, not the primary mechanism (mt3-infer's own checkpoint-exists
+check already is), but a second, explicit guarantee a genuinely missing
+checkpoint fails loudly instead of mt3-infer silently trying to reach
+huggingface.co.
+
+**"MT3 Model Pack not installed" is a real, specific, checked condition,
+not just a generic engine-unavailable message.** `mt3ModelPackInstalled()`
+(new) checks BOTH the interpreter and the real checkpoint file exist
+before `runMt3Worker()` ever attempts to spawn `python.exe` -- absent
+either, every MT3 request fails immediately with a new, specific
+`MT3_MODEL_PACK_MISSING` errorCode and an actionable message ("Re-run the
+BeatShore installer and select the optional \"MT3 Model Pack\"
+component..."), rather than spending time on a doomed 180s READY wait or
+a generic "failed to start" message. The plugin needed no changes to
+surface this clearly -- `PluginEditor.cpp`'s existing generic error
+display already shows `result.message` verbatim, so this message reaches
+the MT3 button's status label exactly as written.
+
+**Long-path awareness, a real bug this session found and root-caused,
+now fixed at the manifest level.** The Twenty-eighth section's own
+isolated test failed once with a genuine Windows `MAX_PATH`
+(`WinError 206`) loading `torch\lib\c10.dll` from an unusually deep
+path; re-testing from a short path confirmed it wasn't a defect in the
+trim itself. Fixed properly rather than just noted: a new
+`Source/BeatShoreDesktop.manifest` fragment (`longPathAware=true`,
+merged into CMake/MSVC's own auto-generated manifest via
+`/MANIFESTINPUT`, not replacing it) -- verified by extracting the
+compiled exe's actual embedded manifest and confirming both the original
+`trustInfo`/`requestedExecutionLevel` AND the new `longPathAware`
+element are present together. One real XML pitfall hit and fixed along
+the way: the manifest's first draft included an explanatory comment
+using this project's own "--" em-dash style, which is illegal inside an
+XML comment body (`--` cannot appear in a comment) -- `mt.exe` failed
+with a real, correctly-reported parse error; fixed by moving the
+explanation to `CMakeLists.txt`'s own comment instead of fighting XML
+comment escaping.
+
+**Real license notices, generated from the actual installed
+distributions, not typed by hand.** A new script,
+`native/installer/scripts/gather_mt3_licenses.py`, walks every
+distribution actually installed in the trimmed venv via
+`importlib.metadata`, reproducing each one's real license classifier and
+license file text (found for 64 of 66; the remaining two --
+`tokenizers`/`tqdm` -- ship no LICENSE file in their own dist-info, noted
+honestly rather than silently omitted, with their real license
+expression still recorded). Four new files joined
+`native/installer/assets/Licenses/`'s existing per-major-dependency
+convention: `Python-LICENSE.txt` (PSF, from the embeddable package's own
+LICENSE.txt), `PyTorch-LICENSE.txt` (BSD-3-Clause, from
+`torch-*.dist-info/licenses/LICENSE`), `mt3-infer-and-MR-MT3-LICENSE.txt`
+(MIT -- carries MR-MT3's own attribution inline, since MR-MT3's code was
+extracted and adapted directly into mt3-infer rather than vendored
+separately), and `MT3-ModelPack-THIRD-PARTY-NOTICES.txt` (the other 64,
+consolidated).
+
+**A real, working, reproducible build script**,
+`native/installer/scripts/build_mt3_model_pack.ps1` -- downloads the
+official Python 3.14.4 embeddable package (version pinned to match
+`ml_env_mt3_trimmed`'s own interpreter, since a mismatched embeddable
+Python wouldn't load compiled extensions built for a different ABI),
+configures its `._pth` file, copies in the trimmed venv's `site-packages`,
+bundles the real MR-MT3 checkpoint (hash-verified against the registry's
+own declared value before AND after copying), and produces
+`native/BeatShoreDesktop/python_engine/mt3_model_pack/` -- gitignored
+(~1.5GB, a build artifact assembled from a downloaded package plus the
+already-gitignored trimmed venv, not source).
+
+**`build-release.ps1` and `BeatShoreSetup.iss` now know about it for
+real.** The release script gained a new staging step: when
+`mt3_model_pack/` exists locally, it's staged into `stage\python\`/
+`stage\models\` and `mt3_engine.py` (only -- never `dac_engine.py`/
+`encodec_engine.py`) into `stage\engine\...\python_engine\`, with its own
+required-path validation and hash recording; when absent (the common
+case on a fresh checkout, including every CI run today), a clear, loud
+warning is logged and the resulting build is honestly Core-only -- no
+silent partial state. The `.iss` script gained real `[Types]`/
+`[Components]` sections (`core`, fixed/mandatory; `mt3modelpack`,
+optional, described as "~1.5GB, offline, no internet required after
+install") and three new `[Files]` entries using
+`skipifsourcedoesntexist` (the real, documented mechanism for "may or
+may not exist at compile time" -- an earlier draft tried a runtime
+`Check:` referencing the compile-time-only `{src}` constant, which is
+meaningless once compiled and would never have actually worked; caught
+before it shipped, not after). Compile-tested twice, both for real: once
+with no Model Pack staged (compiles clean, Core-only installer, matching
+CI's actual situation) and once with the full ~1.5GB Model Pack staged
+(compiles clean, all three MT3 `[Files]` entries genuinely included).
+
+**`--self-test` extended for a real MT3 check, not just "does python
+start".** A new block runs an actual `TRANSCRIBE` request against the
+staged `mt3_engine.py`, asserting `success=true` AND `noteCount > 0` --
+proof of life, not just a READY line. Reports `SKIP` (not `FAIL`, and
+doesn't affect the overall pass/fail) when the Model Pack genuinely isn't
+installed, since that's a legitimate, supported Core-only configuration.
+One real bug found and fixed while wiring this in: the self-test's
+existing shared fixture (a static two-note *dyad*, both notes sustained
+simultaneously for the whole clip -- fine for Basic Pitch's frame-based
+salience CNN) reliably produced `noteCount=0` from MR-MT3 even though the
+model loaded and ran correctly, because MR-MT3's onset-based decoding
+needs a real onset event to register a note. Fixed with a second,
+MT3-appropriate fixture (the same sequential-two-note-with-a-real-attack
+shape already proven reliable across every other MT3 test in this
+project), not by weakening the pass criterion. Verified both branches
+directly: with the dev-tree checkpoint present, `ALL PASSED` including a
+real MT3 `PASS` (`noteCount=2`); with it hidden, a clean `SKIP` and still
+`ALL PASSED` for everything else -- confirming an absent Model Pack
+correctly doesn't fail an otherwise-healthy Core install.
+
+**The actual acceptance bar -- proven, not asserted.** Per the user's own
+explicit instruction ("Do not report completion merely because Python
+starts. Completion requires successful MT3 inference from a copied
+installer-shaped directory with no outside dependencies"): a definitive
+test ran the packaged runtime (embeddable Python + bundled checkpoint,
+copied to `C:\bsrelo\`, nowhere near this repository) with every
+PATH-resolvable `python.exe`/`python3.exe` stripped (including the
+WindowsApps execution alias, an easy way to under-strip PATH and get a
+false pass), `HTTP_PROXY`/`HTTPS_PROXY` pointed at an unreachable local
+port so any attempted network call fails fast and loud instead of
+silently succeeding and masking a bug, and `MT3_CHECKPOINT_DIR`/
+`HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` set exactly as `runMt3Worker()`
+sets them. Result: a real `READY`, a real `TRANSCRIBE` request, real
+`ANALYSIS_PROGRESS` checkpoints, and a real `TRANSCRIBE_RESULT` with
+`success: true`, `noteCount: 2`, and a real `.mid` file written -- from
+the relocated runtime alone.
+
+**Genuinely not verifiable from here, stated plainly, not glossed
+over**: this environment has no administrator privileges (`net session`
+returns Access Denied, matching the earlier chocolatey finding), so the
+compiled installer's own `PrivilegesRequired=admin` install flow --
+UAC-elevated file copy into Program Files/Common Files VST3, the actual
+`RunSelfTest()`/`RunVCRedist()` Pascal-script steps -- has not been
+executed end-to-end from here. What HAS been verified: the exact same
+files Inno Setup compiled into the installer were already proven working
+standalone (the offline/isolated test above used byte-identical staged
+`python\`/`models\` content), and the `.iss` script itself compiles
+clean with the Model Pack included. The remaining gap is specifically
+"did Inno Setup's own install-time file extraction and the Pascal-script
+steps run correctly on a real target machine" -- a real REAPER
+acceptance pass and a genuinely clean-machine install (see
+`REAPER_TEST_CHECKLIST.md` Part C and `RELEASE_STATUS.md`'s acceptance
+checklist) are still what the user's own next-step list calls for, and
+still need a human with a real REAPER session and a second machine this
+environment doesn't have.
+
 ### First round (for reference)
 
 - **No Inno Setup installed in this environment**, so the script has never

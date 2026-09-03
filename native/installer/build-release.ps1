@@ -485,6 +485,50 @@ if (-not (Test-Path $vcRedistDest)) {
 }
 else { Write-Host "vc_redist.x64.exe already staged, skipping download." }
 
+# --- 3.6. Stage the MT3 Model Pack, IF it exists locally -------------------
+# native/BeatShoreDesktop/python_engine/mt3_model_pack/ (a relocatable
+# embeddable Python + the trimmed, DAC/EnCodec-free MT3 dependencies +
+# the licensed MR-MT3 checkpoint -- see
+# native/installer/scripts/build_mt3_model_pack.ps1, which builds it, and
+# STATUS.md's most recent section for how it was verified) is gitignored
+# and ~1.5GB -- never assumed to exist, same reasoning as node.exe/
+# vc_redist.x64.exe above but WITHOUT an automatic download fallback,
+# since there's nowhere this project hosts a 1.5GB artifact for a fresh
+# CI checkout to fetch. When it's absent (the common case on a fresh
+# checkout, including every CI run today), this step logs a clear,
+# specific skip and the resulting installer is honestly Core-only --
+# BeatShoreSetup.iss's own [Components]/[Files] gate the MT3 Model Pack
+# component on stage\python\python.exe existing, so an absent Model Pack
+# here correctly produces a Core-only compiled installer, not a broken
+# one. When present, main.cpp's own defaultPythonExe()/
+# defaultMt3CheckpointDir() (installed-layout paths) automatically pick
+# it up -- no further wiring needed for the self-test below or the
+# runtime itself to find it.
+Write-Step "Staging the MT3 Model Pack (if built locally)"
+$mt3ModelPackSrc = Join-Path $native "BeatShoreDesktop\python_engine\mt3_model_pack"
+$mt3ModelPackPython = Join-Path $mt3ModelPackSrc "python\python.exe"
+$mt3ModelPackCheckpoint = Join-Path $mt3ModelPackSrc "models\mt3\mr_mt3\mt3.pth"
+$mt3ModelPackStaged = $false
+if ((Test-Path $mt3ModelPackPython) -and (Test-Path $mt3ModelPackCheckpoint)) {
+    robocopy (Join-Path $mt3ModelPackSrc "python") (Join-Path $stage "python") /E /R:2 /W:2 /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "staging MT3 Model Pack's python\ failed (robocopy exit $LASTEXITCODE)" }
+    robocopy (Join-Path $mt3ModelPackSrc "models") (Join-Path $stage "models") /E /R:2 /W:2 /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "staging MT3 Model Pack's models\ failed (robocopy exit $LASTEXITCODE)" }
+    # ONLY mt3_engine.py -- dac_engine.py/encodec_engine.py are
+    # deliberately never staged into any customer-facing build (see
+    # STATUS.md's "Twenty-sixth" section: DAC/EnCodec stay internal-only
+    # infrastructure, no user-facing feature exists for them yet).
+    $mt3ScriptDest = Join-Path $stage "engine\native\BeatShoreDesktop\python_engine"
+    New-Item -ItemType Directory -Path $mt3ScriptDest -Force | Out-Null
+    Copy-Item -Path (Join-Path $native "BeatShoreDesktop\python_engine\mt3_engine.py") -Destination $mt3ScriptDest -Force -ErrorAction Stop
+    $mt3ModelPackStaged = $true
+    Write-Host "MT3 Model Pack staged (python\, models\, mt3_engine.py only -- not dac_engine.py/encodec_engine.py)." -ForegroundColor Green
+}
+else {
+    Write-Host "MT3 Model Pack not found locally at $mt3ModelPackSrc -- skipping. This build will be Core-only: the VST3's MT3 UI will be present but every MT3 request will fail with a clear ""Model Pack not installed"" error. Run native/installer/scripts/build_mt3_model_pack.ps1 first to include it." -ForegroundColor Yellow
+}
+$report.steps["mt3_model_pack"] = @{ status = if ($mt3ModelPackStaged) { "staged" } else { "skipped_not_found" } }
+
 # --- 4. Restage, UNCONDITIONALLY -- this is the actual fix for the bug --
 # this session found: never trust that a previously-staged binary is
 # current. Always overwrite it with what was just built, every run.
@@ -518,6 +562,24 @@ if ($missing.Count -gt 0) {
     throw "Staged tree is missing $($missing.Count) required file(s) -- refusing to package"
 }
 Write-Host "All $($requiredPaths.Count) required staged paths present." -ForegroundColor Green
+
+if ($mt3ModelPackStaged) {
+    $mt3RequiredPaths = @(
+        "python\python.exe",
+        "models\mt3\mr_mt3\mt3.pth",
+        "engine\native\BeatShoreDesktop\python_engine\mt3_engine.py"
+    )
+    $mt3Missing = @()
+    foreach ($p in $mt3RequiredPaths) {
+        $full = Join-Path $stage $p
+        if (-not (Test-Path $full)) { $mt3Missing += $p }
+    }
+    if ($mt3Missing.Count -gt 0) {
+        $mt3Missing | ForEach-Object { Write-Host "MISSING (MT3 Model Pack): $_" -ForegroundColor Red }
+        throw "MT3 Model Pack was reported staged but is missing $($mt3Missing.Count) required file(s) -- refusing to package"
+    }
+    Write-Host "All $($mt3RequiredPaths.Count) required MT3 Model Pack paths present." -ForegroundColor Green
+}
 $report.steps["layout_validation"] = @{ status = "ok"; checkedPaths = $requiredPaths.Count }
 
 # Immediate self-check: the staged binary must actually match what was
@@ -627,6 +689,20 @@ $report.artifacts["BeatShoreBridge.vst3"] = @{
     path = $vst3Staged
     sizeBytes = (Get-Item $vst3Staged -ErrorAction Stop).Length
     sha256 = Get-Sha256 $vst3Staged
+}
+if ($mt3ModelPackStaged) {
+    $mt3PythonStaged = Join-Path $stage "python\python.exe"
+    $mt3CheckpointStaged = Join-Path $stage "models\mt3\mr_mt3\mt3.pth"
+    $report.artifacts["mt3ModelPack_python.exe"] = @{
+        path = $mt3PythonStaged
+        sizeBytes = (Get-Item $mt3PythonStaged -ErrorAction Stop).Length
+        sha256 = Get-Sha256 $mt3PythonStaged
+    }
+    $report.artifacts["mt3ModelPack_checkpoint"] = @{
+        path = $mt3CheckpointStaged
+        sizeBytes = (Get-Item $mt3CheckpointStaged -ErrorAction Stop).Length
+        sha256 = Get-Sha256 $mt3CheckpointStaged
+    }
 }
 
 # Staging-manifest hash: SHA-256 over the sorted per-file hash listing of

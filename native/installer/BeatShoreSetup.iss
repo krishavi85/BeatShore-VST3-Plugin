@@ -247,9 +247,30 @@ UninstallDisplayIcon={app}\BeatShoreDesktop.exe
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+; Two real components, not a cosmetic checkbox: "core" (fixed -- always
+; installed, VST3/desktop broker/Basic Pitch) and "mt3modelpack" (the
+; relocatable embeddable-Python runtime + MR-MT3 checkpoint, ~1.5GB --
+; see native/installer/scripts/build_mt3_model_pack.ps1 and STATUS.md's
+; most recent section for how it's built and verified). DAC/EnCodec are
+; deliberately NOT a component here at all -- see STATUS.md's
+; "Twenty-sixth" section: no user-facing feature exists for them yet, so
+; there's nothing to offer installing. Selecting "core" alone still
+; installs the MT3 UI button (it's part of the VST3 itself) -- every
+; MT3 request then fails with a clear, specific "Model Pack not
+; installed" error (see main.cpp's mt3ModelPackInstalled()/
+; runMt3Worker()) rather than a confusing hang or crash.
+[Types]
+Name: "full"; Description: "Full installation (includes the MT3 Model Pack)"
+Name: "core"; Description: "Core installation (VST3, desktop broker, Basic Pitch transcription -- no MT3)"
+Name: "custom"; Description: "Custom installation"; Flags: iscustom
+
+[Components]
+Name: "core"; Description: "BeatShore Core (required)"; Types: full core custom; Flags: fixed
+Name: "mt3modelpack"; Description: "MT3 Model Pack (neural polyphonic transcription -- ~1.5GB, offline, no internet required after install)"; Types: full custom
+
 [Files]
 ; --- Desktop process ---
-Source: "stage\BeatShoreDesktop.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "stage\BeatShoreDesktop.exe"; DestDir: "{app}"; Components: core; Flags: ignoreversion
 
 ; --- Analysis engine. Staged at this specific nested depth -- not
 ; {app}\engine\analyze.js directly -- because analyze.js's own unmodified
@@ -260,7 +281,7 @@ Source: "stage\BeatShoreDesktop.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; this exact path explicitly as BeatShoreDesktop.exe's command-line
 ; argument, rather than relying on its dev-tree-shaped default
 ; script-path resolution. ---
-Source: "stage\engine\beatshore-dsp.js"; DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "stage\engine\beatshore-dsp.js"; DestDir: "{app}\engine"; Components: core; Flags: ignoreversion
 ; package.json here (sibling of beatshore-dsp.js, "type":"module") is not
 ; optional -- without it, Node's module-type resolution for
 ; beatshore-dsp.js is ambiguous and falls back to a syntax-detection
@@ -271,33 +292,66 @@ Source: "stage\engine\beatshore-dsp.js"; DestDir: "{app}\engine"; Flags: ignorev
 ; identical earlier run had merely warned and happened to still succeed.
 ; Staging this file removes the ambiguity entirely rather than relying on
 ; the heuristic guessing right.
-Source: "stage\engine\package.json"; DestDir: "{app}\engine"; Flags: ignoreversion
-Source: "stage\engine\vendor\*"; DestDir: "{app}\engine\vendor"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "stage\engine\native\BeatShoreDesktop\engine\*"; DestDir: "{app}\engine\native\BeatShoreDesktop\engine"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "stage\engine\package.json"; DestDir: "{app}\engine"; Components: core; Flags: ignoreversion
+Source: "stage\engine\vendor\*"; DestDir: "{app}\engine\vendor"; Components: core; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "stage\engine\native\BeatShoreDesktop\engine\*"; DestDir: "{app}\engine\native\BeatShoreDesktop\engine"; Components: core; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; --- Bundled Node runtime (v24.19.0 LTS -- see top-of-file note) -- see
 ; the prerequisites comment above for why this has to be staged manually
 ; rather than fetched by this script. ---
-Source: "stage\node\node.exe"; DestDir: "{app}\node"; Flags: ignoreversion
+Source: "stage\node\node.exe"; DestDir: "{app}\node"; Components: core; Flags: ignoreversion
 
 ; --- VST3 plugin, into the standard shared VST3 location every DAW scans
 ; (REAPER, Cubase, Ableton, Studio One, FL Studio all default here) --
 ; NOT under {app}, since a VST3 host has no reason to look in this app's
 ; own install directory. common64 forces the 64-bit Common Files path
 ; even if a 32-bit Inno Setup build were ever used to compile this. ---
-Source: "stage\BeatShore Bridge.vst3\*"; DestDir: "{commoncf64}\VST3\BeatShore Bridge.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "stage\BeatShore Bridge.vst3\*"; DestDir: "{commoncf64}\VST3\BeatShore Bridge.vst3"; Components: core; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; --- MT3 Model Pack: a relocatable embeddable-Python runtime + the
+; trimmed, DAC/EnCodec-free MT3 dependencies (python\) and the licensed
+; MR-MT3 checkpoint (models\), staged only when
+; native/BeatShoreDesktop/python_engine/mt3_model_pack/ existed locally
+; at build-release.ps1 time (see that script's own "Staging the MT3
+; Model Pack" step). Only mt3_engine.py from python_engine\ is staged
+; here, deliberately alongside python\/models\ rather than with the rest
+; of engine\ above -- dac_engine.py/encodec_engine.py are never staged
+; into any customer-facing build at all (see STATUS.md's "Twenty-sixth"
+; section).
+;
+; skipifsourcedoesntexist is the real mechanism here, not a Check: --
+; Check: is a Pascal-script predicate evaluated by the COMPILED
+; installer at runtime on the END USER's machine, where "{src}" (the
+; compile-time staging tree) doesn't exist at all; it cannot gate
+; whether a file was compiled INTO setup.exe in the first place. With
+; skipifsourcedoesntexist, ISCC compiles cleanly whether or not the
+; Model Pack was staged: if `stage\python\` is absent (the common case
+; on a fresh checkout, including every CI run today), these three lines
+; simply contribute nothing to the compiled installer -- selecting
+; "mt3modelpack" in that build's wizard would show the component but
+; install nothing, which is why build-release.ps1's own staging step
+; logs a loud, specific warning when the Model Pack isn't found, rather
+; than silently producing that broken-looking configuration. ---
+Source: "stage\python\*"; DestDir: "{app}\python"; Components: mt3modelpack; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "stage\models\*"; DestDir: "{app}\models"; Components: mt3modelpack; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "stage\engine\native\BeatShoreDesktop\python_engine\mt3_engine.py"; DestDir: "{app}\engine\native\BeatShoreDesktop\python_engine"; Components: mt3modelpack; Flags: ignoreversion skipifsourcedoesntexist
 
 ; --- Third-party license notices (attribution, not a user agreement --
 ; see [Setup]'s LicenseFile comment). Installed into {app}\Licenses so
 ; they're discoverable after setup, not just shown once during install.
 ; A generated software-bill-of-materials belongs here too once produced
 ; (see native/installer/RELEASE_MANIFEST.md). ---
-Source: "stage\Licenses\*"; DestDir: "{app}\Licenses"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Includes the MT3 Model Pack's own license notices (Python, PyTorch,
+; mt3-infer/MR-MT3, and the consolidated third-party notices) even on a
+; Core-only install -- always installed rather than split per component,
+; since the extra size is a few hundred KB of text, not worth the added
+; complexity of conditionally staging individual license files.
+Source: "stage\Licenses\*"; DestDir: "{app}\Licenses"; Components: core; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; --- Microsoft Visual C++ x64 Redistributable -- handled in [Code] below
 ; (RunVCRedist), not a declarative [Run] entry, so its actual exit code
 ; can be inspected rather than just waited on. ---
-Source: "stage\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "stage\vc_redist.x64.exe"; DestDir: "{tmp}"; Components: core; Flags: deleteafterinstall
 
 [Icons]
 Name: "{group}\BeatShore Desktop"; Filename: "{app}\BeatShoreDesktop.exe"; Parameters: """{app}\engine\native\BeatShoreDesktop\engine\analyze.js"""

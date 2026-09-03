@@ -10,6 +10,19 @@ directly, see STATUS.md) if not specified. This script ALWAYS passes
 model="mr_mt3" explicitly; never remove that argument to "simplify" a
 call, since the default silently picks the unlicensed model.
 
+IMPORTANT (offline loading -- see STATUS.md's most recent section):
+every transcribe() call below ALSO always passes auto_download=False.
+mt3-infer's own checkpoint-exists check (api.py's load_model()) already
+skips its download path whenever the checkpoint file is already present
+-- confirmed directly by reading its source, not assumed -- so this
+isn't the primary thing preventing a network call; it's an explicit,
+second guarantee that a genuinely missing/corrupted checkpoint fails
+loudly and immediately instead of mt3-infer silently trying to reach
+huggingface.co. The real checkpoint location comes from the
+MT3_CHECKPOINT_DIR env var main.cpp's runMt3Worker() sets (see its own
+comment) -- never remove auto_download=False either, for the same
+reason model="mr_mt3" above must stay explicit.
+
 Protocol:
   Startup:  {"type": "READY"}
   Request:  {"type": "TRANSCRIBE", "requestId": "...",
@@ -121,7 +134,7 @@ def handle_transcribe(msg: dict) -> dict:
         # with no per-step callback of its own).
         send({"type": "ANALYSIS_PROGRESS", "requestId": request_id, "progress": 0.1})
 
-        midi = transcribe(audio, model="mr_mt3", sr=MR_MT3_TARGET_SR)
+        midi = transcribe(audio, model="mr_mt3", sr=MR_MT3_TARGET_SR, auto_download=False)
 
         # Real checkpoint: model inference is done and note events are
         # decoded -- about to write the .mid file, the last real step.
@@ -154,7 +167,7 @@ def main() -> int:
     # request" the way the DAC/EnCodec engines' explicit load_model()-at-
     # startup already behaves.
     dummy = np.zeros(MR_MT3_TARGET_SR, dtype=np.float32)
-    transcribe(dummy, model="mr_mt3", sr=MR_MT3_TARGET_SR)
+    transcribe(dummy, model="mr_mt3", sr=MR_MT3_TARGET_SR, auto_download=False)
 
     send({"type": "READY"})
 
